@@ -13,6 +13,7 @@ import (
 
 	"github.com/vtmattedi/mw-oauth-service/internal/admin"
 	"github.com/vtmattedi/mw-oauth-service/internal/api"
+	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 	"github.com/vtmattedi/mw-oauth-service/internal/config"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
@@ -58,6 +59,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	auditService := audit.NewService(store)
+
 	projectService := project.NewService(
 		store,
 		callbackSecrets,
@@ -79,6 +82,7 @@ func main() {
 		Health:   store,
 		Admin:    adminService,
 		Projects: projectService,
+		Audit:    auditService,
 	})
 
 	server := &http.Server{

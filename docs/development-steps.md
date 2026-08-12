@@ -268,3 +268,70 @@ CALLBACK_SECRET_ACTIVE_KEY_VERSION=2
 
 Step 04 does not yet expose project authentication on the public OAuth API.
 That is introduced when public transaction creation is implemented.
+
+---
+
+## Step 05 sanity check
+
+Step 05 adds observability/admin introspection:
+
+- structured audit-event persistence;
+- audit metadata redaction for known secret fields;
+- API-key fingerprint helper for future rejected-key correlation;
+- global request IDs via `X-Request-ID`;
+- filtered/paginated admin audit listing;
+- initial OAuth metrics grouped by project;
+- server/build/API metadata;
+- embedded versioned API documentation.
+
+Admin routes:
+
+```text
+GET /admin/api/server
+
+GET /admin/api/docs
+GET /admin/api/docs/{version}
+
+GET /admin/api/audit
+GET /admin/api/audit/{id}
+
+GET /admin/api/metrics
+```
+
+Common audit/metric query parameters:
+
+```text
+from
+to
+project_id
+status
+limit
+offset
+```
+
+`from` and `to` use RFC3339 and are normalized to UTC Unix timestamps before
+querying SQLite.
+
+Pagination response metadata:
+
+```json
+{
+  "limit": 50,
+  "offset": 0,
+  "count": 0,
+  "total": 0,
+  "has_more": false
+}
+```
+
+The embedded `v1` documentation snapshot is copied from:
+
+```text
+docs/mw-oauth-service-v1-api-reference.md
+```
+
+into the Go package at Step 05 generation time, so the binary serves the API
+documentation snapshot it was built with.
+
+Step 05 establishes audit infrastructure. Public OAuth rejection/success
+events are wired into it when the public OAuth flow is introduced.

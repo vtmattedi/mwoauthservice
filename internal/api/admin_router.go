@@ -4,12 +4,16 @@ import (
 	"net/http"
 
 	"github.com/vtmattedi/mw-oauth-service/internal/admin"
+	"github.com/vtmattedi/mw-oauth-service/internal/audit"
+	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
 )
 
 func newAdminRouter(
 	service *admin.Service,
 	projects *project.Service,
+	auditService *audit.Service,
+	build buildinfo.Info,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -86,6 +90,50 @@ func newAdminRouter(
 			"PUT /admin/api/projects/{id}/oauth/google",
 			service.SessionAndCSRF(
 				AdminProjectGoogleConfigPut(projects),
+			),
+		)
+	}
+
+	mux.Handle(
+		"GET /admin/api/server",
+		service.SessionOnly(
+			AdminServer(build),
+		),
+	)
+
+	mux.Handle(
+		"GET /admin/api/docs",
+		service.SessionOnly(
+			AdminDocsList(),
+		),
+	)
+
+	mux.Handle(
+		"GET /admin/api/docs/{version}",
+		service.SessionOnly(
+			AdminDocsGet(),
+		),
+	)
+
+	if auditService != nil {
+		mux.Handle(
+			"GET /admin/api/audit",
+			service.SessionOnly(
+				AdminAuditList(auditService),
+			),
+		)
+
+		mux.Handle(
+			"GET /admin/api/audit/{id}",
+			service.SessionOnly(
+				AdminAuditGet(auditService),
+			),
+		)
+
+		mux.Handle(
+			"GET /admin/api/metrics",
+			service.SessionOnly(
+				AdminOAuthMetrics(auditService),
 			),
 		)
 	}

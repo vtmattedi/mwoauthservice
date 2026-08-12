@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/vtmattedi/mw-oauth-service/internal/admin"
+	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
 )
@@ -20,6 +21,7 @@ type Dependencies struct {
 	Health   HealthStore
 	Admin    *admin.Service
 	Projects *project.Service
+	Audit    *audit.Service
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -44,12 +46,14 @@ func NewRouter(deps Dependencies) http.Handler {
 		adminHandler := newAdminRouter(
 			deps.Admin,
 			deps.Projects,
+			deps.Audit,
+			deps.Build,
 		)
 		mux.Handle("/admin/api", adminHandler)
 		mux.Handle("/admin/api/", adminHandler)
 	}
 
-	return mux
+	return RequestID(mux)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
