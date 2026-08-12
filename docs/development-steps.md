@@ -109,3 +109,48 @@ docker compose down
 ```
 
 Stop after Step 01 and verify it before applying Step 02.
+
+---
+
+## Step 02 sanity check
+
+Step 02 adds SQLite and the embedded migration engine.
+
+The service now:
+
+- opens `DATABASE_PATH` at startup;
+- creates the database parent directory when required;
+- enables WAL;
+- enables foreign keys;
+- configures a 5-second busy timeout;
+- applies embedded migrations;
+- checks SQLite from the existing minimal `/health` endpoint.
+
+Run:
+
+```bash
+sh scripts/sanity-step-02.sh
+```
+
+With the current local internal port:
+
+```bash
+go run ./cmd/server
+curl -i http://127.0.0.1:8282/health
+```
+
+With the current Docker mapping (`3010 -> 8282`):
+
+```bash
+docker compose up -d --build
+curl -i http://127.0.0.1:3010/health
+```
+
+Expected:
+
+```json
+{"status":"ok"}
+```
+
+Do not use `docker compose down -v` once production data exists.
+

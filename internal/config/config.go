@@ -9,15 +9,17 @@ import (
 )
 
 type Config struct {
-	AppEnv   string
-	Port     string
-	LogLevel slog.Level
+	AppEnv       string
+	Port         string
+	DatabasePath string
+	LogLevel     slog.Level
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		AppEnv: strings.TrimSpace(os.Getenv("APP_ENV")),
-		Port:   strings.TrimSpace(os.Getenv("PORT")),
+		AppEnv:       strings.TrimSpace(os.Getenv("APP_ENV")),
+		Port:         strings.TrimSpace(os.Getenv("PORT")),
+		DatabasePath: strings.TrimSpace(os.Getenv("DATABASE_PATH")),
 	}
 
 	if cfg.AppEnv == "" {
@@ -25,6 +27,9 @@ func Load() (Config, error) {
 	}
 	if cfg.Port == "" {
 		cfg.Port = "8282"
+	}
+	if cfg.DatabasePath == "" {
+		cfg.DatabasePath = "./data/oauth.db"
 	}
 
 	level, err := parseLogLevel(os.Getenv("LOG_LEVEL"))

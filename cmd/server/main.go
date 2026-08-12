@@ -14,6 +14,7 @@ import (
 	"github.com/vtmattedi/mw-oauth-service/internal/api"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 	"github.com/vtmattedi/mw-oauth-service/internal/config"
+	"github.com/vtmattedi/mw-oauth-service/internal/store/sqlite"
 )
 
 func main() {
@@ -30,8 +31,20 @@ func main() {
 	)
 	slog.SetDefault(logger)
 
+	store, err := sqlite.Open(cfg.DatabasePath)
+	if err != nil {
+		slog.Error("database initialization failed", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			slog.Error("database close failed", "error", err)
+		}
+	}()
+
 	handler := api.NewRouter(api.Dependencies{
-		Build: buildinfo.Current(),
+		Build:  buildinfo.Current(),
+		Health: store,
 	})
 
 	server := &http.Server{

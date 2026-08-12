@@ -2,20 +2,35 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 )
 
+type HealthStore interface {
+	Ping(ctx context.Context) error
+}
+
 type Dependencies struct {
-	Build buildinfo.Info
+	Build  buildinfo.Info
+	Health HealthStore
 }
 
 func NewRouter(deps Dependencies) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		if deps.Health != nil {
+			if err := deps.Health.Ping(r.Context()); err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+					"status": "unavailable",
+				})
+				return
+			}
+		}
+
 		writeJSON(w, http.StatusOK, map[string]string{
 			"status": "ok",
 		})
