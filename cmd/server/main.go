@@ -15,6 +15,8 @@ import (
 	"github.com/vtmattedi/mw-oauth-service/internal/api"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 	"github.com/vtmattedi/mw-oauth-service/internal/config"
+	"github.com/vtmattedi/mw-oauth-service/internal/project"
+	"github.com/vtmattedi/mw-oauth-service/internal/secretbox"
 	"github.com/vtmattedi/mw-oauth-service/internal/store/sqlite"
 )
 
@@ -43,6 +45,24 @@ func main() {
 		}
 	}()
 
+	callbackSecrets, err := secretbox.NewKeyring(
+		cfg.CallbackSecretKeys,
+		cfg.CallbackSecretActiveKeyVersion,
+	)
+	if err != nil {
+		slog.Error(
+			"callback secret keyring configuration failed",
+			"error",
+			err,
+		)
+		os.Exit(1)
+	}
+
+	projectService := project.NewService(
+		store,
+		callbackSecrets,
+	)
+
 	adminService := admin.NewService(
 		store,
 		admin.Options{
@@ -55,9 +75,10 @@ func main() {
 	)
 
 	handler := api.NewRouter(api.Dependencies{
-		Build:  buildinfo.Current(),
-		Health: store,
-		Admin:  adminService,
+		Build:    buildinfo.Current(),
+		Health:   store,
+		Admin:    adminService,
+		Projects: projectService,
 	})
 
 	server := &http.Server{

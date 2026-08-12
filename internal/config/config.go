@@ -10,14 +10,16 @@ import (
 )
 
 type Config struct {
-	AppEnv             string
-	Port               string
-	DatabasePath       string
-	LogLevel           slog.Level
-	AdminOrigins       []string
-	CheckSPHost        bool
-	SPHost             string
-	AdminSessionCookie string
+	AppEnv                         string
+	Port                           string
+	DatabasePath                   string
+	LogLevel                       slog.Level
+	AdminOrigins                   []string
+	CheckSPHost                    bool
+	SPHost                         string
+	AdminSessionCookie             string
+	CallbackSecretKeys             string
+	CallbackSecretActiveKeyVersion int
 }
 
 func Load() (Config, error) {
@@ -70,6 +72,26 @@ func Load() (Config, error) {
 	)
 	if cfg.AdminSessionCookie == "" {
 		cfg.AdminSessionCookie = "mw_oauth_admin_session"
+	}
+
+	cfg.CallbackSecretKeys = strings.TrimSpace(
+		os.Getenv("CALLBACK_SECRET_KEYS"),
+	)
+
+	activeVersionRaw := strings.TrimSpace(
+		os.Getenv("CALLBACK_SECRET_ACTIVE_KEY_VERSION"),
+	)
+	if activeVersionRaw == "" {
+		cfg.CallbackSecretActiveKeyVersion = 1
+	} else {
+		activeVersion, err := strconv.Atoi(activeVersionRaw)
+		if err != nil || activeVersion <= 0 {
+			return Config{}, fmt.Errorf(
+				"invalid CALLBACK_SECRET_ACTIVE_KEY_VERSION %q",
+				activeVersionRaw,
+			)
+		}
+		cfg.CallbackSecretActiveKeyVersion = activeVersion
 	}
 
 	return cfg, nil

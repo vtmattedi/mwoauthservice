@@ -8,6 +8,7 @@ import (
 
 	"github.com/vtmattedi/mw-oauth-service/internal/admin"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
+	"github.com/vtmattedi/mw-oauth-service/internal/project"
 )
 
 type HealthStore interface {
@@ -15,9 +16,10 @@ type HealthStore interface {
 }
 
 type Dependencies struct {
-	Build  buildinfo.Info
-	Health HealthStore
-	Admin  *admin.Service
+	Build    buildinfo.Info
+	Health   HealthStore
+	Admin    *admin.Service
+	Projects *project.Service
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -39,7 +41,10 @@ func NewRouter(deps Dependencies) http.Handler {
 	})
 
 	if deps.Admin != nil {
-		adminHandler := newAdminRouter(deps.Admin)
+		adminHandler := newAdminRouter(
+			deps.Admin,
+			deps.Projects,
+		)
 		mux.Handle("/admin/api", adminHandler)
 		mux.Handle("/admin/api/", adminHandler)
 	}

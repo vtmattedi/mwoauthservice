@@ -209,3 +209,62 @@ Host/origin concealment is defense in depth, not authentication.
 
 Stop after this step until login, `/auth/me`, CSRF rotation and logout have
 been verified.
+
+---
+
+## Step 04 sanity check
+
+Step 04 adds project/tenant administration:
+
+- project API keys (`mw_live_...`), stored only as SHA-256 hashes;
+- callback signing secrets (`mw_whsec_...`), encrypted at rest with AES-256-GCM;
+- versioned callback-secret encryption keys;
+- project enable/disable and rename;
+- API-key rotation;
+- callback-secret rotation;
+- Google provider policy;
+- allowed scopes;
+- exact callback URLs;
+- exact browser return URLs;
+- per-project OAuth rate configuration.
+
+Admin routes:
+
+```text
+GET   /admin/api/projects
+POST  /admin/api/projects
+PATCH /admin/api/projects/{id}
+
+POST /admin/api/projects/{id}/rotate-key
+POST /admin/api/projects/{id}/rotate-callback-secret
+
+GET /admin/api/projects/{id}/oauth/google
+PUT /admin/api/projects/{id}/oauth/google
+```
+
+Project creation returns the raw API key and callback signing secret exactly once.
+Neither raw secret is persisted in plaintext.
+
+Before starting the Step 04 server, add:
+
+```env
+CALLBACK_SECRET_KEYS=1:<base64url-encoded-32-byte-key>
+CALLBACK_SECRET_ACTIVE_KEY_VERSION=1
+```
+
+Generate a development key with:
+
+```bash
+python -c "import secrets,base64; print('1:'+base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip('='))"
+```
+
+For future encryption-key rotation, keep old key versions configured while
+introducing a new active version, for example:
+
+```env
+CALLBACK_SECRET_KEYS=1:<old>,2:<new>
+CALLBACK_SECRET_ACTIVE_KEY_VERSION=2
+```
+
+Step 04 does not yet expose project authentication on the public OAuth API.
+That is introduced when public transaction creation is implemented.
