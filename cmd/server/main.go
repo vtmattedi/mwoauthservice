@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/vtmattedi/mw-oauth-service/internal/admin"
 	"github.com/vtmattedi/mw-oauth-service/internal/api"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 	"github.com/vtmattedi/mw-oauth-service/internal/config"
@@ -42,9 +43,21 @@ func main() {
 		}
 	}()
 
+	adminService := admin.NewService(
+		store,
+		admin.Options{
+			Origins:       cfg.AdminOrigins,
+			CheckSPHost:   cfg.CheckSPHost,
+			SPHost:        cfg.SPHost,
+			CookieName:    cfg.AdminSessionCookie,
+			SecureCookies: cfg.AppEnv != "development",
+		},
+	)
+
 	handler := api.NewRouter(api.Dependencies{
 		Build:  buildinfo.Current(),
 		Health: store,
+		Admin:  adminService,
 	})
 
 	server := &http.Server{

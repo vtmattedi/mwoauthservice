@@ -154,3 +154,58 @@ Expected:
 
 Do not use `docker compose down -v` once production data exists.
 
+---
+
+## Step 03 sanity check
+
+Step 03 adds the admin authentication foundation:
+
+- Argon2id password hashes;
+- server-side sessions;
+- hashed session and CSRF tokens;
+- HttpOnly `SameSite=Strict` cookie;
+- `Secure` cookies outside development;
+- admin origin allowlist/CORS;
+- optional `SP_HOST` concealment;
+- `create-admin` CLI.
+
+Routes:
+
+```text
+POST /admin/api/auth/login
+GET  /admin/api/auth/me
+POST /admin/api/auth/csrf
+POST /admin/api/auth/logout
+```
+
+Local:
+
+```bash
+go run ./cmd/create-admin -email admin@example.com
+```
+
+Docker:
+
+```bash
+docker compose up -d --build
+docker compose exec -it gateway /app/create-admin -email admin@example.com
+```
+
+Development configuration:
+
+```env
+ADMIN_DEV_ORIGIN=http://localhost:5173
+CHECK_SP_HOST=false
+```
+
+Production should use the real admin SPA origin plus:
+
+```env
+CHECK_SP_HOST=true
+SP_HOST=oauth.mattediworks.com
+```
+
+Host/origin concealment is defense in depth, not authentication.
+
+Stop after this step until login, `/auth/me`, CSRF rotation and logout have
+been verified.

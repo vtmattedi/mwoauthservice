@@ -5,14 +5,19 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 )
 
 type Config struct {
-	AppEnv       string
-	Port         string
-	DatabasePath string
-	LogLevel     slog.Level
+	AppEnv             string
+	Port               string
+	DatabasePath       string
+	LogLevel           slog.Level
+	AdminOrigins       []string
+	CheckSPHost        bool
+	SPHost             string
+	AdminSessionCookie string
 }
 
 func Load() (Config, error) {
@@ -38,6 +43,35 @@ func Load() (Config, error) {
 	}
 	cfg.LogLevel = level
 
+	cfg.AdminOrigins = compactStrings(
+		os.Getenv("ADMIN_ORIGIN"),
+		os.Getenv("ADMIN_DEV_ORIGIN"),
+	)
+
+	checkSPHost, err := parseBoolEnv(
+		"CHECK_SP_HOST",
+		os.Getenv("CHECK_SP_HOST"),
+		false,
+	)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.CheckSPHost = checkSPHost
+	cfg.SPHost = strings.TrimSpace(os.Getenv("SP_HOST"))
+
+	if cfg.CheckSPHost && cfg.SPHost == "" {
+		return Config{}, fmt.Errorf(
+			"SP_HOST is required when CHECK_SP_HOST=true",
+		)
+	}
+
+	cfg.AdminSessionCookie = strings.TrimSpace(
+		os.Getenv("ADMIN_SESSION_COOKIE"),
+	)
+	if cfg.AdminSessionCookie == "" {
+		cfg.AdminSessionCookie = "mw_oauth_admin_session"
+	}
+
 	return cfg, nil
 }
 
@@ -54,4 +88,42 @@ func parseLogLevel(raw string) (slog.Level, error) {
 	default:
 		return 0, fmt.Errorf("invalid LOG_LEVEL %q", raw)
 	}
+}
+
+func parseBoolEnv(
+	name string,
+	raw string,
+	defaultValue bool,
+) (bool, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultValue, nil
+	}
+
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("invalid %s %q", name, raw)
+	}
+
+	return value, nil
+}
+
+func compactStrings(values ...string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+
+	return result
 }

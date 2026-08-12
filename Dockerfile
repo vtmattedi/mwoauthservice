@@ -22,6 +22,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /out/mw-oauth-service \
     ./cmd/server
 
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -o /out/create-admin \
+    ./cmd/create-admin
+
 FROM alpine:3.22
 
 RUN apk add --no-cache ca-certificates tzdata \
@@ -33,6 +38,7 @@ RUN apk add --no-cache ca-certificates tzdata \
 WORKDIR /app
 
 COPY --from=builder /out/mw-oauth-service /app/mw-oauth-service
+COPY --from=builder /out/create-admin /app/create-admin
 
 USER app
 

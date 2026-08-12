@@ -53,7 +53,11 @@ func TestHealthUnavailableWhenDatabasePingFails(t *testing.T) {
 	router.ServeHTTP(res, req)
 
 	if res.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d; want %d", res.Code, http.StatusServiceUnavailable)
+		t.Fatalf(
+			"status = %d; want %d",
+			res.Code,
+			http.StatusServiceUnavailable,
+		)
 	}
 }
 

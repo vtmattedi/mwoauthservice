@@ -8,4 +8,3 @@ bin
 dist
 coverage.out
 .step-*-backup-*
-*.py
