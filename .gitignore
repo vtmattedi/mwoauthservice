@@ -1,1 +1,16 @@
-/.init_scripts
+.env
+data/*
+!data/.gitkeep
+
+*.db
+*.db-shm
+*.db-wal
+
+bin/
+dist/
+coverage.out
+
+.step-*-backup-/
+.DS_Store
+
+.init_scripts/
