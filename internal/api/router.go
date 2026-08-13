@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/vtmattedi/mw-oauth-service/internal/admin"
+	"github.com/vtmattedi/mw-oauth-service/internal/adminwebauthn"
 	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 	"github.com/vtmattedi/mw-oauth-service/internal/oauth"
@@ -21,6 +22,7 @@ type Dependencies struct {
 	Build         buildinfo.Info
 	Health        HealthStore
 	Admin         *admin.Service
+	AdminWebAuthn *adminwebauthn.Service
 	Projects      *project.Service
 	Audit         *audit.Service
 	OAuth         *oauth.Service
@@ -68,6 +70,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	if deps.Admin != nil {
 		adminHandler := newAdminRouter(
 			deps.Admin,
+			deps.AdminWebAuthn,
 			deps.Projects,
 			deps.Audit,
 			deps.Build,

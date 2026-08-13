@@ -242,7 +242,7 @@ func (s *Service) CORS(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set(
 				"Access-Control-Allow-Headers",
-				"Content-Type, X-CSRF-Token",
+				"Content-Type, X-CSRF-Token, X-MW-WebAuthn-Ceremony",
 			)
 			w.Header().Set(
 				"Access-Control-Allow-Methods",
@@ -377,4 +377,85 @@ func writeAuthError(
 		`{"error":%q}`,
 		message,
 	)
+}
+
+func (s *Service) CreateSessionForUser(
+	ctx context.Context,
+	adminUserID int64,
+) (
+	domain.AdminUser,
+	string,
+	string,
+	time.Time,
+	error,
+) {
+	user, err := s.store.GetAdminUserByID(
+		ctx,
+		adminUserID,
+	)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return domain.AdminUser{}, "", "", time.Time{}, ErrUnauthorized
+		}
+		return domain.AdminUser{}, "", "", time.Time{}, err
+	}
+	if !user.Enabled {
+		return domain.AdminUser{}, "", "", time.Time{}, ErrUnauthorized
+	}
+
+	sessionToken, err := randomToken()
+	if err != nil {
+		return domain.AdminUser{}, "", "", time.Time{}, err
+	}
+
+	csrfToken, err := randomToken()
+	if err != nil {
+		return domain.AdminUser{}, "", "", time.Time{}, err
+	}
+
+	now := time.Now().UTC()
+	expiresAt := now.Add(sessionTTL)
+
+	if err := s.store.DeleteExpiredAdminSessions(
+		ctx,
+		now.Unix(),
+	); err != nil {
+		return domain.AdminUser{}, "", "", time.Time{}, err
+	}
+
+	_, err = s.store.CreateAdminSession(
+		ctx,
+		user.ID,
+		hashToken(sessionToken),
+		hashToken(csrfToken),
+		expiresAt.Unix(),
+	)
+	if err != nil {
+		return domain.AdminUser{}, "", "", time.Time{}, err
+	}
+
+	user.PasswordHash = ""
+
+	return user, sessionToken, csrfToken, expiresAt, nil
+}
+
+func (s *Service) VerifyPasswordForUser(
+	ctx context.Context,
+	adminUserID int64,
+	password string,
+) error {
+	user, err := s.store.GetAdminUserByID(
+		ctx,
+		adminUserID,
+	)
+	if err != nil {
+		return ErrUnauthorized
+	}
+
+	if !user.Enabled ||
+		!VerifyPassword(user.PasswordHash, password) {
+		return ErrUnauthorized
+	}
+
+	return nil
 }

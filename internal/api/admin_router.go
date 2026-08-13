@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/vtmattedi/mw-oauth-service/internal/admin"
+	"github.com/vtmattedi/mw-oauth-service/internal/adminwebauthn"
 	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
@@ -11,6 +12,7 @@ import (
 
 func newAdminRouter(
 	service *admin.Service,
+	webAuthnService *adminwebauthn.Service,
 	projects *project.Service,
 	auditService *audit.Service,
 	build buildinfo.Info,
@@ -42,6 +44,63 @@ func newAdminRouter(
 			AdminLogout(service),
 		),
 	)
+
+	if webAuthnService != nil {
+		mux.Handle(
+			"GET /admin/api/auth/webauthn",
+			service.SessionOnly(
+				AdminWebAuthnList(webAuthnService),
+			),
+		)
+
+		mux.Handle(
+			"POST /admin/api/auth/webauthn/register/options",
+			service.SessionAndCSRF(
+				AdminWebAuthnRegisterOptions(
+					webAuthnService,
+					auditService,
+				),
+			),
+		)
+
+		mux.Handle(
+			"POST /admin/api/auth/webauthn/register/verify",
+			service.SessionAndCSRF(
+				AdminWebAuthnRegisterVerify(
+					webAuthnService,
+					auditService,
+				),
+			),
+		)
+
+		mux.Handle(
+			"DELETE /admin/api/auth/webauthn/{credential_id}",
+			service.SessionAndCSRF(
+				AdminWebAuthnDelete(
+					webAuthnService,
+					service,
+					auditService,
+				),
+			),
+		)
+
+		mux.HandleFunc(
+			"POST /admin/api/auth/webauthn/login/options",
+			AdminWebAuthnLoginOptions(
+				webAuthnService,
+				auditService,
+			),
+		)
+
+		mux.HandleFunc(
+			"POST /admin/api/auth/webauthn/login/verify",
+			AdminWebAuthnLoginVerify(
+				webAuthnService,
+				service,
+				auditService,
+			),
+		)
+	}
 
 	if projects != nil {
 		mux.Handle(

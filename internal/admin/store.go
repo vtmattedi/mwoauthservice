@@ -21,6 +21,11 @@ type Store interface {
 		email string,
 	) (domain.AdminUser, error)
 
+	GetAdminUserByID(
+		ctx context.Context,
+		id int64,
+	) (domain.AdminUser, error)
+
 	CreateAdminSession(
 		ctx context.Context,
 		adminUserID int64,

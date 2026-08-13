@@ -633,3 +633,56 @@ proxies directly to the service, prefer:
 
 The exact Nginx `/oauth/google/callback` location with `access_log off`
 remains mandatory.
+
+---
+
+## Step 10.a — Optional WebAuthn
+
+Step 10.a adds optional passkey/WebAuthn authentication for administrators.
+
+Password login remains valid.
+
+WebAuthn uses:
+
+```text
+RP ID: oauth.mattediworks.com
+Admin origin: https://<admin>.oauth.mattediworks.com
+userVerification: required
+discoverable credential: required
+attestation: none
+```
+
+New admin routes:
+
+```text
+GET    /admin/api/auth/webauthn
+POST   /admin/api/auth/webauthn/register/options
+POST   /admin/api/auth/webauthn/register/verify
+DELETE /admin/api/auth/webauthn/{credential_id}
+
+POST   /admin/api/auth/webauthn/login/options
+POST   /admin/api/auth/webauthn/login/verify
+```
+
+Registration and credential removal use the existing admin session + CSRF boundary.
+
+Credential removal additionally requires fresh password confirmation in Step 10.a.
+
+Passkey login issues the same existing opaque server-side session and CSRF token as password login.
+
+Server-side WebAuthn `SessionData` and serialized credential records are encrypted using a dedicated versioned keyring.
+
+```env
+WEBAUTHN_CREDENTIAL_KEYS=1:<base64url-32-byte-key>
+WEBAUTHN_CREDENTIAL_ACTIVE_KEY_VERSION=1
+```
+
+Ceremony tokens are random, short-lived, single-use, and stored only as SHA-256 hashes.
+
+Step 10.a intentionally does not implement mandatory MFA, recovery, TOTP, or passwordless-only authentication.
+
+See:
+
+```text
+docs/step-10a-optional-webauthn.md
+```

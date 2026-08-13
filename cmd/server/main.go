@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vtmattedi/mw-oauth-service/internal/admin"
+	"github.com/vtmattedi/mw-oauth-service/internal/adminwebauthn"
 	"github.com/vtmattedi/mw-oauth-service/internal/api"
 	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
@@ -155,10 +156,30 @@ func main() {
 		},
 	)
 
+	adminWebAuthnService, err := adminwebauthn.NewService(
+		store,
+		adminwebauthn.Options{
+			RPID:                       cfg.WebAuthnRPID,
+			RPName:                     cfg.WebAuthnRPName,
+			Origins:                    cfg.WebAuthnOrigins,
+			CredentialKeys:             cfg.WebAuthnCredentialKeys,
+			CredentialActiveKeyVersion: cfg.WebAuthnCredentialActiveKeyVersion,
+		},
+	)
+	if err != nil {
+		slog.Error(
+			"admin WebAuthn configuration failed",
+			"error",
+			err,
+		)
+		os.Exit(1)
+	}
+
 	handler := api.NewRouter(api.Dependencies{
 		Build:         buildinfo.Current(),
 		Health:        store,
 		Admin:         adminService,
+		AdminWebAuthn: adminWebAuthnService,
 		Projects:      projectService,
 		Audit:         auditService,
 		OAuth:         oauthService,

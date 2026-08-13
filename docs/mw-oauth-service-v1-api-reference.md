@@ -149,6 +149,42 @@ POST /admin/api/auth/csrf
 POST /admin/api/auth/logout
 ```
 
+### Optional WebAuthn / passkeys — Step 10.a
+
+WebAuthn is optional in Step 10.a. Existing password login remains available.
+
+```text
+GET    /admin/api/auth/webauthn
+POST   /admin/api/auth/webauthn/register/options
+POST   /admin/api/auth/webauthn/register/verify
+DELETE /admin/api/auth/webauthn/{credential_id}
+
+POST   /admin/api/auth/webauthn/login/options
+POST   /admin/api/auth/webauthn/login/verify
+```
+
+Registration and removal require the existing session/CSRF protections.
+
+`register/verify` and `login/verify` receive the raw browser WebAuthn credential JSON and require:
+
+```http
+X-MW-WebAuthn-Ceremony: wac_...
+Content-Type: application/json
+```
+
+The begin endpoints return:
+
+```json
+{
+  "ceremony_token": "wac_...",
+  "options": {
+    "publicKey": {}
+  }
+}
+```
+
+Successful passkey login issues the same server-side admin session and CSRF response used by password login.
+
 ### Server and docs
 
 ```text

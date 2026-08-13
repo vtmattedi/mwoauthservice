@@ -10,20 +10,25 @@ import (
 )
 
 type Config struct {
-	AppEnv                         string
-	Port                           string
-	DatabasePath                   string
-	LogLevel                       slog.Level
-	AdminOrigins                   []string
-	CheckSPHost                    bool
-	SPHost                         string
-	AdminSessionCookie             string
-	CallbackSecretKeys             string
-	CallbackSecretActiveKeyVersion int
-	GoogleClientID                 string
-	GoogleClientSecret             string
-	GoogleRedirectURI              string
-	TokenEncryptionKey             string
+	AppEnv                             string
+	Port                               string
+	DatabasePath                       string
+	LogLevel                           slog.Level
+	AdminOrigins                       []string
+	CheckSPHost                        bool
+	SPHost                             string
+	AdminSessionCookie                 string
+	WebAuthnRPID                       string
+	WebAuthnRPName                     string
+	WebAuthnOrigins                    []string
+	WebAuthnCredentialKeys             string
+	WebAuthnCredentialActiveKeyVersion int
+	CallbackSecretKeys                 string
+	CallbackSecretActiveKeyVersion     int
+	GoogleClientID                     string
+	GoogleClientSecret                 string
+	GoogleRedirectURI                  string
+	TokenEncryptionKey                 string
 }
 
 func Load() (Config, error) {
@@ -76,6 +81,44 @@ func Load() (Config, error) {
 	)
 	if cfg.AdminSessionCookie == "" {
 		cfg.AdminSessionCookie = "mw_oauth_admin_session"
+	}
+
+	cfg.WebAuthnRPID = strings.TrimSpace(
+		os.Getenv("WEBAUTHN_RP_ID"),
+	)
+	if cfg.WebAuthnRPID == "" {
+		cfg.WebAuthnRPID = "oauth.mattediworks.com"
+	}
+
+	cfg.WebAuthnRPName = strings.TrimSpace(
+		os.Getenv("WEBAUTHN_RP_NAME"),
+	)
+	if cfg.WebAuthnRPName == "" {
+		cfg.WebAuthnRPName = "MW OAuth"
+	}
+
+	cfg.WebAuthnOrigins = splitCommaStrings(
+		os.Getenv("WEBAUTHN_ORIGINS"),
+	)
+
+	cfg.WebAuthnCredentialKeys = strings.TrimSpace(
+		os.Getenv("WEBAUTHN_CREDENTIAL_KEYS"),
+	)
+
+	webAuthnVersionRaw := strings.TrimSpace(
+		os.Getenv("WEBAUTHN_CREDENTIAL_ACTIVE_KEY_VERSION"),
+	)
+	if webAuthnVersionRaw == "" {
+		cfg.WebAuthnCredentialActiveKeyVersion = 1
+	} else {
+		version, err := strconv.Atoi(webAuthnVersionRaw)
+		if err != nil || version <= 0 {
+			return Config{}, fmt.Errorf(
+				"invalid WEBAUTHN_CREDENTIAL_ACTIVE_KEY_VERSION %q",
+				webAuthnVersionRaw,
+			)
+		}
+		cfg.WebAuthnCredentialActiveKeyVersion = version
 	}
 
 	cfg.CallbackSecretKeys = strings.TrimSpace(
@@ -167,6 +210,26 @@ func compactStrings(values ...string) []string {
 			continue
 		}
 
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+
+	return result
+}
+
+func splitCommaStrings(raw string) []string {
+	parts := strings.Split(raw, ",")
+	result := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+
+	for _, value := range parts {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
 		seen[value] = struct{}{}
 		result = append(result, value)
 	}

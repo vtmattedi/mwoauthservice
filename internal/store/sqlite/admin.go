@@ -82,6 +82,13 @@ func (s *Store) GetAdminUserByEmail(
 	return user, nil
 }
 
+func (s *Store) GetAdminUserByID(
+	ctx context.Context,
+	id int64,
+) (domain.AdminUser, error) {
+	return s.getAdminUserByID(ctx, id)
+}
+
 func (s *Store) getAdminUserByID(
 	ctx context.Context,
 	id int64,
