@@ -598,3 +598,38 @@ not exposed by list/get admin APIs after initial creation/rotation.
 
 The browser return redirect still never contains Google code, state, access
 token, refresh token, or callback signing secret.
+
+---
+
+## Step 09 sanity check
+
+Step 09 is the v1 hardening/deployment pass.
+
+It adds global security headers and disables caching on sensitive admin/OAuth
+routes. The Google callback response specifically gets:
+
+```text
+Referrer-Policy: no-referrer
+Cache-Control: no-store, max-age=0
+Pragma: no-cache
+```
+
+Incoming `X-Request-ID` values are accepted only when they contain safe ASCII
+identifier characters (`A-Z`, `a-z`, `0-9`, `.`, `_`, `-`). Invalid values are
+replaced with a generated request ID.
+
+Review:
+
+```text
+docs/production-hardening.md
+```
+
+Step 09 does not automatically rewrite Docker networking. If host Nginx
+proxies directly to the service, prefer:
+
+```text
+127.0.0.1:3010:8282
+```
+
+The exact Nginx `/oauth/google/callback` location with `access_log off`
+remains mandatory.

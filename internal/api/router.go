@@ -76,7 +76,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		mux.Handle("/admin/api/", adminHandler)
 	}
 
-	return RequestID(mux)
+	return SecurityHeaders(RequestID(mux))
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

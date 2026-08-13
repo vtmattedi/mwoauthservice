@@ -21,7 +21,7 @@ func RequestID(next http.Handler) http.Handler {
 			r.Header.Get(requestIDHeader),
 		)
 
-		if requestID == "" || len(requestID) > 160 {
+		if !validRequestID(requestID) {
 			requestID = newRequestID()
 		}
 
@@ -50,4 +50,23 @@ func newRequestID() string {
 
 	return "req_" +
 		base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func validRequestID(value string) bool {
+	if value == "" || len(value) > 160 {
+		return false
+	}
+
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '-', r == '_', r == '.':
+		default:
+			return false
+		}
+	}
+
+	return true
 }
