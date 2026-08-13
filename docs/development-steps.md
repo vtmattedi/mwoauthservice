@@ -686,3 +686,45 @@ See:
 ```text
 docs/step-10a-optional-webauthn.md
 ```
+
+---
+
+## Local `.env` loading
+
+For local/direct execution, the server loads `.env` before calling
+`config.Load()` when `APP_ENV` is:
+
+```text
+unset
+development
+local
+```
+
+Examples:
+
+```powershell
+go run ./cmd/server
+```
+
+or:
+
+```powershell
+go run cmd/server/main.go
+```
+
+can therefore use the repository `.env` file directly.
+
+An explicitly configured non-development environment does not load `.env`:
+
+```text
+APP_ENV=production
+APP_ENV=staging
+APP_ENV=test
+```
+
+Environment variables already present in the process take precedence over
+values from `.env`.
+
+Docker/production configuration remains environment-native; `.env` loading is
+only a local-development convenience and is not used when production
+`APP_ENV` is explicitly set.

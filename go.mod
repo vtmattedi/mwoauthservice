@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/go-webauthn/webauthn v0.17.4
+	github.com/joho/godotenv v1.5.1
 	golang.org/x/crypto v0.55.0
 	golang.org/x/term v0.45.0
 	modernc.org/sqlite v1.56.0

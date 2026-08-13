@@ -18,6 +18,7 @@ import (
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 	"github.com/vtmattedi/mw-oauth-service/internal/config"
 	"github.com/vtmattedi/mw-oauth-service/internal/delivery"
+	"github.com/vtmattedi/mw-oauth-service/internal/envfile"
 	"github.com/vtmattedi/mw-oauth-service/internal/oauth"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
 	"github.com/vtmattedi/mw-oauth-service/internal/providers/google"
@@ -27,6 +28,15 @@ import (
 )
 
 func main() {
+	if err := envfile.LoadDevelopment(); err != nil {
+		slog.Error(
+			"development .env load failed",
+			"error",
+			err,
+		)
+		os.Exit(1)
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("configuration error", "error", err)
