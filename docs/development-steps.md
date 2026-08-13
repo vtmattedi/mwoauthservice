@@ -506,3 +506,95 @@ into:
 ```text
 processing -> completed
 ```
+
+---
+
+## Step 08 sanity check
+
+Step 08 replaces the temporary unavailable token deliverer with the real
+signed HTTPS callback to the consuming project's backend.
+
+Successful flow:
+
+```text
+Google callback
+  -> atomic pending -> processing
+  -> exchange code with PKCE
+  -> tokens exist only in process memory
+  -> signed POST to exact project callback_url
+  -> project persists credentials and returns 2xx
+  -> processing -> completed
+  -> tokens discarded
+  -> browser redirects to trusted return_url
+```
+
+The callback body is:
+
+```json
+{
+  "event": "oauth.authorization.completed",
+  "transaction_id": "oauth_txn_...",
+  "client_reference": "oauth_pending_...",
+  "provider": "google",
+  "token": {
+    "access_token": "...",
+    "refresh_token": "...",
+    "token_type": "Bearer",
+    "expires_in": 3599,
+    "scope": ["..."]
+  }
+}
+```
+
+Headers:
+
+```text
+Content-Type: application/json
+X-MW-Webhook-Id: oauth_delivery_...
+X-MW-Timestamp: <unix-seconds>
+X-MW-Signature: v1=<hex-hmac-sha256>
+```
+
+Canonical signature input:
+
+```text
+<webhook-id>.<timestamp>.<raw-request-body>
+```
+
+Signature:
+
+```text
+HMAC-SHA256(project_callback_secret, canonical_input)
+```
+
+The v1 signature encoding is now frozen as lowercase hexadecimal.
+
+Delivery retries are synchronous and in memory only:
+
+```text
+attempt 1: immediately
+attempt 2: +250ms
+attempt 3: +750ms
+```
+
+The same webhook ID, timestamp, body, and signature are reused for all retry
+attempts. A consuming project must deduplicate by `X-MW-Webhook-Id`.
+
+Any 2xx response is success. Redirects are never followed. This is a security
+requirement: following a project callback redirect could forward OAuth tokens
+to an unintended host.
+
+After three failed attempts:
+
+```text
+processing -> delivery_failed
+```
+
+Tokens are discarded and are not queued or persisted for later retry. The
+project/user must start a new authorization.
+
+The callback signing secret is decrypted only on demand for delivery and is
+not exposed by list/get admin APIs after initial creation/rotation.
+
+The browser return redirect still never contains Google code, state, access
+token, refresh token, or callback signing secret.

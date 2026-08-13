@@ -16,6 +16,7 @@ import (
 	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 	"github.com/vtmattedi/mw-oauth-service/internal/config"
+	"github.com/vtmattedi/mw-oauth-service/internal/delivery"
 	"github.com/vtmattedi/mw-oauth-service/internal/oauth"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
 	"github.com/vtmattedi/mw-oauth-service/internal/providers/google"
@@ -115,11 +116,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	signedDeliverer, err := delivery.NewSignedDeliverer(
+		projectService,
+		delivery.Options{},
+	)
+	if err != nil {
+		slog.Error(
+			"signed callback delivery configuration failed",
+			"error",
+			err,
+		)
+		os.Exit(1)
+	}
+
 	callbackService, err := oauth.NewCallbackService(
 		store,
 		transactionCipher,
 		googleProvider,
-		oauth.UnavailableDeliverer{},
+		signedDeliverer,
 	)
 	if err != nil {
 		slog.Error(

@@ -63,6 +63,11 @@ type Store interface {
 		keyVersion int,
 	) error
 
+	GetProjectCallbackSecret(
+		ctx context.Context,
+		projectID int64,
+	) (CallbackSecretRecord, error)
+
 	GetGoogleOAuthConfig(
 		ctx context.Context,
 		projectID int64,
