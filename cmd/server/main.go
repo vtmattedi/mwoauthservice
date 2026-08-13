@@ -16,9 +16,12 @@ import (
 	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 	"github.com/vtmattedi/mw-oauth-service/internal/config"
+	"github.com/vtmattedi/mw-oauth-service/internal/oauth"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
+	"github.com/vtmattedi/mw-oauth-service/internal/providers/google"
 	"github.com/vtmattedi/mw-oauth-service/internal/secretbox"
 	"github.com/vtmattedi/mw-oauth-service/internal/store/sqlite"
+	"github.com/vtmattedi/mw-oauth-service/internal/transactioncrypto"
 )
 
 func main() {
@@ -46,6 +49,18 @@ func main() {
 		}
 	}()
 
+	transactionCipher, err := transactioncrypto.New(
+		cfg.TokenEncryptionKey,
+	)
+	if err != nil {
+		slog.Error(
+			"transaction encryption configuration failed",
+			"error",
+			err,
+		)
+		os.Exit(1)
+	}
+
 	callbackSecrets, err := secretbox.NewKeyring(
 		cfg.CallbackSecretKeys,
 		cfg.CallbackSecretActiveKeyVersion,
@@ -66,6 +81,55 @@ func main() {
 		callbackSecrets,
 	)
 
+	oauthService, err := oauth.NewService(
+		store,
+		projectService,
+		transactionCipher,
+		oauth.Options{
+			GoogleClientID:    cfg.GoogleClientID,
+			GoogleRedirectURI: cfg.GoogleRedirectURI,
+		},
+	)
+	if err != nil {
+		slog.Error(
+			"OAuth service configuration failed",
+			"error",
+			err,
+		)
+		os.Exit(1)
+	}
+
+	googleProvider, err := google.NewClient(
+		google.Options{
+			ClientID:     cfg.GoogleClientID,
+			ClientSecret: cfg.GoogleClientSecret,
+			RedirectURI:  cfg.GoogleRedirectURI,
+		},
+	)
+	if err != nil {
+		slog.Error(
+			"Google OAuth provider configuration failed",
+			"error",
+			err,
+		)
+		os.Exit(1)
+	}
+
+	callbackService, err := oauth.NewCallbackService(
+		store,
+		transactionCipher,
+		googleProvider,
+		oauth.UnavailableDeliverer{},
+	)
+	if err != nil {
+		slog.Error(
+			"OAuth callback service configuration failed",
+			"error",
+			err,
+		)
+		os.Exit(1)
+	}
+
 	adminService := admin.NewService(
 		store,
 		admin.Options{
@@ -78,11 +142,13 @@ func main() {
 	)
 
 	handler := api.NewRouter(api.Dependencies{
-		Build:    buildinfo.Current(),
-		Health:   store,
-		Admin:    adminService,
-		Projects: projectService,
-		Audit:    auditService,
+		Build:         buildinfo.Current(),
+		Health:        store,
+		Admin:         adminService,
+		Projects:      projectService,
+		Audit:         auditService,
+		OAuth:         oauthService,
+		OAuthCallback: callbackService,
 	})
 
 	server := &http.Server{

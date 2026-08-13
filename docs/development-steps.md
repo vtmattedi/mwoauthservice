@@ -335,3 +335,174 @@ documentation snapshot it was built with.
 
 Step 05 establishes audit infrastructure. Public OAuth rejection/success
 events are wired into it when the public OAuth flow is introduced.
+
+---
+
+## Step 06 sanity check
+
+Step 06 introduces the first public OAuth endpoint:
+
+```text
+POST /v1/oauth/google/authorize
+```
+
+The endpoint authenticates the consuming project with:
+
+```http
+Authorization: Bearer mw_live_...
+```
+
+and accepts:
+
+```json
+{
+  "scopes": [
+    "https://www.googleapis.com/auth/calendar"
+  ],
+  "callback_url": "https://app.example.com/api/oauth/google/result",
+  "return_url": "https://app.example.com/settings/integrations",
+  "client_reference": "oauth_pending_86bV7"
+}
+```
+
+It validates:
+
+- project API key;
+- project enabled status;
+- Google enabled status;
+- requested scopes as a subset of the configured allowlist;
+- exact configured callback URL;
+- exact configured return URL;
+- per-minute rate limit;
+- per-hour rate limit;
+- maximum active pending transactions.
+
+On success, Step 06 creates a 10-minute transaction containing:
+
+- random opaque OAuth `state`, stored only as SHA-256;
+- PKCE S256 verifier/challenge;
+- encrypted PKCE verifier;
+- opaque `client_reference`;
+- exact project callback URL;
+- exact browser return URL;
+- requested scopes;
+- `pending` status.
+
+Success:
+
+```json
+{
+  "transaction_id": "oauth_txn_...",
+  "authorization_url": "https://accounts.google.com/...",
+  "expires_in": 600
+}
+```
+
+The authorization URL uses Google's real authorization endpoint with PKCE,
+offline access, and consent.
+
+Step 06 adds these environment variables:
+
+```env
+GOOGLE_CLIENT_ID=
+GOOGLE_REDIRECT_URI=https://oauth.mattediworks.com/oauth/google/callback
+TOKEN_ENCRYPTION_KEY=
+```
+
+`TOKEN_ENCRYPTION_KEY` is a raw base64url-encoded 32-byte key. Unlike
+`CALLBACK_SECRET_KEYS`, it does **not** use a `1:` version prefix in v1.
+
+Generate one with:
+
+```bash
+python -c "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip('='))"
+```
+
+Step 06 also begins writing public request audit events, including:
+
+```text
+oauth.request.accepted
+oauth.request.rejected.invalid_api_key
+oauth.request.rejected.disabled_project
+oauth.request.rejected.disabled_provider
+oauth.request.rejected.invalid_body
+oauth.request.rejected.scope_not_allowed
+oauth.request.rejected.callback_not_allowed
+oauth.request.rejected.return_url_not_allowed
+oauth.request.rejected.rate_limited
+```
+
+Authorization codes and provider tokens do not exist in Step 06 yet. Google
+callback/code exchange is Step 07.
+
+---
+
+## Step 07 sanity check
+
+Step 07 adds Google's provider callback and authorization-code exchange:
+
+```text
+GET /oauth/google/callback
+```
+
+Callback processing:
+
+1. receives Google's opaque `state`;
+2. hashes it and resolves the short-lived transaction;
+3. atomically consumes only a `pending` transaction;
+4. rejects replayed or unknown state;
+5. expires stale transactions atomically;
+6. handles `error=access_denied`;
+7. decrypts the stored PKCE verifier only in process memory;
+8. exchanges Google's authorization code at the Google token endpoint;
+9. keeps returned OAuth tokens only in process memory;
+10. invokes a delivery interface;
+11. updates the transaction to a terminal state;
+12. redirects the browser only to the previously configured trusted
+    `return_url`.
+
+Step 07 intentionally wires an unavailable delivery implementation. Therefore,
+a successful Google code exchange currently becomes:
+
+```text
+processing -> delivery_failed
+```
+
+and the token values are discarded. This is deliberate: Step 08 replaces the
+temporary deliverer with the signed HTTPS callback to the consuming project.
+
+A callback result redirects to the trusted project return URL with only:
+
+```text
+mw_oauth_status
+mw_oauth_transaction_id
+```
+
+Google's authorization code, OAuth state, access token, and refresh token are
+never placed in the browser redirect.
+
+Step 07 adds:
+
+```env
+GOOGLE_CLIENT_SECRET=
+```
+
+### Reverse-proxy logging requirement
+
+Google returns the authorization `code` and `state` in the callback query
+string. The Go application never logs `r.URL.RawQuery`, but a default Nginx
+access log commonly logs the full request URI.
+
+For `/oauth/google/callback`, production proxy logging must therefore either:
+
+- use a log format based on `$uri` rather than `$request_uri`; or
+- disable the access log for this callback location.
+
+Do not persist the callback query string in reverse-proxy logs.
+
+Step 08 implements the signed project callback and turns successful exchanges
+into:
+
+```text
+processing -> completed
+```

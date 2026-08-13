@@ -9,6 +9,7 @@ import (
 	"github.com/vtmattedi/mw-oauth-service/internal/admin"
 	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
+	"github.com/vtmattedi/mw-oauth-service/internal/oauth"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
 )
 
@@ -17,11 +18,13 @@ type HealthStore interface {
 }
 
 type Dependencies struct {
-	Build    buildinfo.Info
-	Health   HealthStore
-	Admin    *admin.Service
-	Projects *project.Service
-	Audit    *audit.Service
+	Build         buildinfo.Info
+	Health        HealthStore
+	Admin         *admin.Service
+	Projects      *project.Service
+	Audit         *audit.Service
+	OAuth         *oauth.Service
+	OAuthCallback *oauth.CallbackService
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -41,6 +44,26 @@ func NewRouter(deps Dependencies) http.Handler {
 			"status": "ok",
 		})
 	})
+
+	if deps.OAuth != nil {
+		mux.HandleFunc(
+			"POST /v1/oauth/google/authorize",
+			PublicGoogleAuthorize(
+				deps.OAuth,
+				deps.Audit,
+			),
+		)
+	}
+
+	if deps.OAuthCallback != nil {
+		mux.HandleFunc(
+			"GET /oauth/google/callback",
+			GoogleOAuthCallback(
+				deps.OAuthCallback,
+				deps.Audit,
+			),
+		)
+	}
 
 	if deps.Admin != nil {
 		adminHandler := newAdminRouter(

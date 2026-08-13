@@ -20,6 +20,10 @@ type Config struct {
 	AdminSessionCookie             string
 	CallbackSecretKeys             string
 	CallbackSecretActiveKeyVersion int
+	GoogleClientID                 string
+	GoogleClientSecret             string
+	GoogleRedirectURI              string
+	TokenEncryptionKey             string
 }
 
 func Load() (Config, error) {
@@ -93,6 +97,26 @@ func Load() (Config, error) {
 		}
 		cfg.CallbackSecretActiveKeyVersion = activeVersion
 	}
+
+	cfg.GoogleClientID = strings.TrimSpace(
+		os.Getenv("GOOGLE_CLIENT_ID"),
+	)
+
+	cfg.GoogleClientSecret = strings.TrimSpace(
+		os.Getenv("GOOGLE_CLIENT_SECRET"),
+	)
+
+	cfg.GoogleRedirectURI = strings.TrimSpace(
+		os.Getenv("GOOGLE_REDIRECT_URI"),
+	)
+	if cfg.GoogleRedirectURI == "" {
+		cfg.GoogleRedirectURI =
+			"https://oauth.mattediworks.com/oauth/google/callback"
+	}
+
+	cfg.TokenEncryptionKey = strings.TrimSpace(
+		os.Getenv("TOKEN_ENCRYPTION_KEY"),
+	)
 
 	return cfg, nil
 }
