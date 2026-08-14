@@ -16,15 +16,36 @@ func (s *Store) InsertAuditEvent(
 	ctx context.Context,
 	event domain.AuditEvent,
 ) (domain.AuditEvent, error) {
+	id, err := insertAuditEvent(ctx, s.db, event)
+	if err != nil {
+		return domain.AuditEvent{}, err
+	}
+
+	return s.GetAuditEvent(ctx, id)
+}
+
+type auditEventExecutor interface {
+	ExecContext(
+		ctx context.Context,
+		query string,
+		args ...any,
+	) (sql.Result, error)
+}
+
+func insertAuditEvent(
+	ctx context.Context,
+	executor auditEventExecutor,
+	event domain.AuditEvent,
+) (int64, error) {
 	metadataJSON, err := json.Marshal(event.Metadata)
 	if err != nil {
-		return domain.AuditEvent{}, fmt.Errorf(
+		return 0, fmt.Errorf(
 			"encode audit metadata: %w",
 			err,
 		)
 	}
 
-	result, err := s.db.ExecContext(
+	result, err := executor.ExecContext(
 		ctx,
 		`INSERT INTO audit_events(
             event_type,
@@ -58,7 +79,7 @@ func (s *Store) InsertAuditEvent(
 		event.AttemptCount,
 	)
 	if err != nil {
-		return domain.AuditEvent{}, fmt.Errorf(
+		return 0, fmt.Errorf(
 			"insert audit event: %w",
 			err,
 		)
@@ -66,13 +87,13 @@ func (s *Store) InsertAuditEvent(
 
 	id, err := result.LastInsertId()
 	if err != nil {
-		return domain.AuditEvent{}, fmt.Errorf(
+		return 0, fmt.Errorf(
 			"read audit event id: %w",
 			err,
 		)
 	}
 
-	return s.GetAuditEvent(ctx, id)
+	return id, nil
 }
 
 func (s *Store) GetAuditEvent(

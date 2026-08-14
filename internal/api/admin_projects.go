@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/vtmattedi/mw-oauth-service/internal/domain"
+	"github.com/vtmattedi/mw-oauth-service/internal/federation"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
 )
 
@@ -128,6 +129,47 @@ func AdminProjectUpdate(
 		}
 
 		writeJSON(w, http.StatusOK, updated)
+	}
+}
+
+func AdminProjectDelete(
+	service *project.Service,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := adminProjectID(w, r)
+		if !ok {
+			return
+		}
+
+		principal, ok := federation.Current(r.Context())
+		if !ok {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+
+		status := http.StatusNoContent
+		_, err := service.Delete(
+			r.Context(),
+			id,
+			domain.AuditEvent{
+				RequestID:  RequestIDFromContext(r.Context()),
+				Method:     r.Method,
+				Path:       r.URL.Path,
+				HTTPStatus: &status,
+				Origin:     r.Header.Get("Origin"),
+				RemoteIP:   requestRemoteIP(r),
+				Metadata: adminPrincipalAuditMetadata(
+					principal,
+					federation.ScopeProjectsDelete,
+				),
+			},
+		)
+		if err != nil {
+			writeProjectError(w, err)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -258,6 +300,11 @@ func writeProjectError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, project.ErrNotFound):
 		writeError(w, http.StatusNotFound, "project not found")
+	case errors.Is(err, project.ErrDependencies):
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "project has dependencies",
+			"code":  "project_has_dependencies",
+		})
 	case errors.Is(err, project.ErrConflict):
 		writeError(w, http.StatusConflict, "project already exists")
 	default:

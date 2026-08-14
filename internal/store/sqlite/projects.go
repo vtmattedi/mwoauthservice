@@ -167,6 +167,82 @@ func (s *Store) UpdateProject(
 	return s.GetProject(ctx, id)
 }
 
+func (s *Store) DeleteProject(
+	ctx context.Context,
+	id int64,
+	event domain.AuditEvent,
+) (domain.Project, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.Project{}, fmt.Errorf(
+			"begin project deletion: %w",
+			err,
+		)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	deleted, err := scanProject(tx.QueryRowContext(
+		ctx,
+		`SELECT id, name, enabled, created_at, updated_at
+         FROM projects
+         WHERE id = ?
+         LIMIT 1`,
+		id,
+	))
+	if err != nil {
+		return domain.Project{}, err
+	}
+
+	result, err := tx.ExecContext(
+		ctx,
+		`DELETE FROM projects WHERE id = ?`,
+		id,
+	)
+	if err != nil {
+		if isForeignKeyConstraint(err) {
+			return domain.Project{}, project.ErrDependencies
+		}
+		return domain.Project{}, fmt.Errorf("delete project: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return domain.Project{}, fmt.Errorf(
+			"read project deletion rows: %w",
+			err,
+		)
+	}
+	if affected != 1 {
+		return domain.Project{}, project.ErrNotFound
+	}
+
+	metadata := make(map[string]any, len(event.Metadata)+2)
+	for key, value := range event.Metadata {
+		metadata[key] = value
+	}
+	metadata["project_id"] = deleted.ID
+	metadata["project_name"] = deleted.Name
+	event.Metadata = metadata
+
+	if _, err := insertAuditEvent(ctx, tx, event); err != nil {
+		return domain.Project{}, fmt.Errorf(
+			"record project deletion audit: %w",
+			err,
+		)
+	}
+
+	if err := tx.Commit(); err != nil {
+		if isForeignKeyConstraint(err) {
+			return domain.Project{}, project.ErrDependencies
+		}
+		return domain.Project{}, fmt.Errorf(
+			"commit project deletion: %w",
+			err,
+		)
+	}
+
+	return deleted, nil
+}
+
 func (s *Store) UpdateProjectTokenHash(
 	ctx context.Context,
 	id int64,

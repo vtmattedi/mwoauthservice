@@ -222,7 +222,9 @@ func (s *Service) Conceal(next http.Handler) http.Handler {
 			}
 		}
 
-		if len(s.origins) > 0 {
+		// Origin concealment protects local browser requests. A server-to-server
+		// Authorization request is authenticated by federation middleware.
+		if len(s.origins) > 0 && len(r.Header.Values("Authorization")) == 0 {
 			origin := strings.TrimSpace(r.Header.Get("Origin"))
 			if _, allowed := s.origins[origin]; !allowed {
 				http.NotFound(w, r)

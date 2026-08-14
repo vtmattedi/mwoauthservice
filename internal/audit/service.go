@@ -46,7 +46,7 @@ func (s *Service) Record(
 	ctx context.Context,
 	event domain.AuditEvent,
 ) (domain.AuditEvent, error) {
-	normalized, err := normalizeEvent(event)
+	normalized, err := NormalizeEvent(event)
 	if err != nil {
 		return domain.AuditEvent{}, err
 	}
@@ -98,7 +98,8 @@ func FingerprintAPIKey(raw string) string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 
-func normalizeEvent(
+// NormalizeEvent validates and removes sensitive audit metadata before storage.
+func NormalizeEvent(
 	event domain.AuditEvent,
 ) (domain.AuditEvent, error) {
 	event.EventType = strings.TrimSpace(event.EventType)

@@ -4,9 +4,13 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/vtmattedi/mw-oauth-service/internal/federation"
 )
 
 type Config struct {
@@ -29,6 +33,12 @@ type Config struct {
 	GoogleClientSecret                 string
 	GoogleRedirectURI                  string
 	TokenEncryptionKey                 string
+	AdminAuthMode                      federation.Mode
+	IdentityInternalBaseURL            string
+	IdentityIntrospectionClientID      string
+	IdentityIntrospectionClientSecret  string
+	IdentityAudience                   string
+	IdentityHTTPTimeout                time.Duration
 }
 
 func Load() (Config, error) {
@@ -160,6 +170,62 @@ func Load() (Config, error) {
 	cfg.TokenEncryptionKey = strings.TrimSpace(
 		os.Getenv("TOKEN_ENCRYPTION_KEY"),
 	)
+
+	cfg.AdminAuthMode, err = federation.ParseMode(os.Getenv("ADMIN_AUTH_MODE"))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.IdentityInternalBaseURL = strings.TrimSpace(
+		os.Getenv("MW_IDENTITY_INTERNAL_BASE_URL"),
+	)
+	cfg.IdentityIntrospectionClientID = strings.TrimSpace(
+		os.Getenv("MW_IDENTITY_INTROSPECTION_CLIENT_ID"),
+	)
+	cfg.IdentityIntrospectionClientSecret = os.Getenv(
+		"MW_IDENTITY_INTROSPECTION_CLIENT_SECRET",
+	)
+	cfg.IdentityAudience = strings.TrimSpace(
+		os.Getenv("MW_IDENTITY_AUDIENCE"),
+	)
+	if cfg.IdentityAudience == "" {
+		cfg.IdentityAudience = "mw-oauth"
+	}
+
+	timeoutRaw := strings.TrimSpace(
+		os.Getenv("MW_IDENTITY_HTTP_TIMEOUT_SECONDS"),
+	)
+	timeoutSeconds := 5.0
+	if timeoutRaw != "" {
+		timeoutSeconds, err = strconv.ParseFloat(timeoutRaw, 64)
+		if err != nil || timeoutSeconds <= 0 ||
+			math.IsNaN(timeoutSeconds) || math.IsInf(timeoutSeconds, 0) {
+			return Config{}, fmt.Errorf(
+				"invalid MW_IDENTITY_HTTP_TIMEOUT_SECONDS %q",
+				timeoutRaw,
+			)
+		}
+	}
+	cfg.IdentityHTTPTimeout = time.Duration(
+		timeoutSeconds * float64(time.Second),
+	)
+	if cfg.IdentityHTTPTimeout <= 0 {
+		return Config{}, fmt.Errorf(
+			"invalid MW_IDENTITY_HTTP_TIMEOUT_SECONDS %q",
+			timeoutRaw,
+		)
+	}
+
+	if cfg.AdminAuthMode != federation.ModeLocal {
+		if cfg.IdentityInternalBaseURL == "" ||
+			cfg.IdentityIntrospectionClientID == "" ||
+			cfg.IdentityIntrospectionClientSecret == "" ||
+			cfg.IdentityAudience == "" {
+			return Config{}, fmt.Errorf(
+				"MW Identity configuration is required when ADMIN_AUTH_MODE=%s",
+				cfg.AdminAuthMode,
+			)
+		}
+	}
 
 	return cfg, nil
 }

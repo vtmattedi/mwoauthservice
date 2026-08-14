@@ -199,6 +199,7 @@ GET /admin/api/docs/{version}
 GET   /admin/api/projects
 POST  /admin/api/projects
 PATCH /admin/api/projects/{id}
+DELETE /admin/api/projects/{id}
 POST  /admin/api/projects/{id}/rotate-key
 POST  /admin/api/projects/{id}/rotate-callback-secret
 GET   /admin/api/projects/{id}/oauth/google

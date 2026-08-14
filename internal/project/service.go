@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/domain"
 )
 
@@ -158,6 +159,35 @@ func (s *Service) Update(
 		name,
 		enabled,
 	)
+}
+
+// Delete atomically revokes a project and its cascading credentials and
+// configuration while preserving the successful administrative audit event.
+func (s *Service) Delete(
+	ctx context.Context,
+	id int64,
+	event domain.AuditEvent,
+) (domain.Project, error) {
+	if id <= 0 {
+		return domain.Project{}, ErrNotFound
+	}
+
+	event.EventType = "admin.project.deleted"
+	event.Status = "completed"
+	event.Severity = "warning"
+	event.ProjectID = nil
+	event.ReasonCode = "deleted"
+	event.AttemptCount = 1
+
+	normalized, err := audit.NormalizeEvent(event)
+	if err != nil {
+		return domain.Project{}, fmt.Errorf(
+			"prepare project deletion audit: %w",
+			err,
+		)
+	}
+
+	return s.store.DeleteProject(ctx, id, normalized)
 }
 
 func (s *Service) RotateAPIKey(

@@ -4,12 +4,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/vtmattedi/mw-oauth-service/internal/admin"
 	"github.com/vtmattedi/mw-oauth-service/internal/adminwebauthn"
 	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
+	"github.com/vtmattedi/mw-oauth-service/internal/federation"
 	"github.com/vtmattedi/mw-oauth-service/internal/oauth"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
 )
@@ -27,6 +29,7 @@ type Dependencies struct {
 	Audit         *audit.Service
 	OAuth         *oauth.Service
 	OAuthCallback *oauth.CallbackService
+	Federation    *federation.Authenticator
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -74,12 +77,27 @@ func NewRouter(deps Dependencies) http.Handler {
 			deps.Projects,
 			deps.Audit,
 			deps.Build,
+			deps.Federation,
 		)
 		mux.Handle("/admin/api", adminHandler)
 		mux.Handle("/admin/api/", adminHandler)
 	}
 
-	return SecurityHeaders(RequestID(mux))
+	return SecurityHeaders(RequestID(requestLogging(mux)))
+}
+
+func requestLogging(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf(
+			"request_id=%s method=%s path=%s remote_addr=%s",
+			RequestIDFromContext(r.Context()),
+			r.Method,
+			r.URL.Path,
+			r.RemoteAddr,
+		)
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

@@ -19,6 +19,7 @@ import (
 	"github.com/vtmattedi/mw-oauth-service/internal/config"
 	"github.com/vtmattedi/mw-oauth-service/internal/delivery"
 	"github.com/vtmattedi/mw-oauth-service/internal/envfile"
+	"github.com/vtmattedi/mw-oauth-service/internal/federation"
 	"github.com/vtmattedi/mw-oauth-service/internal/oauth"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
 	"github.com/vtmattedi/mw-oauth-service/internal/providers/google"
@@ -166,6 +167,31 @@ func main() {
 		},
 	)
 
+	var introspectionClient federation.IntrospectionClient
+	if cfg.AdminAuthMode != federation.ModeLocal {
+		client, err := federation.NewClient(federation.ClientOptions{
+			BaseURL:      cfg.IdentityInternalBaseURL,
+			ClientID:     cfg.IdentityIntrospectionClientID,
+			ClientSecret: cfg.IdentityIntrospectionClientSecret,
+			Timeout:      cfg.IdentityHTTPTimeout,
+		})
+		if err != nil {
+			slog.Error("Identity introspection configuration failed", "error", err)
+			os.Exit(1)
+		}
+		introspectionClient = client
+	}
+
+	federatedAdmin, err := federation.NewAuthenticator(
+		cfg.AdminAuthMode,
+		cfg.IdentityAudience,
+		introspectionClient,
+	)
+	if err != nil {
+		slog.Error("admin federation configuration failed", "error", err)
+		os.Exit(1)
+	}
+
 	adminWebAuthnService, err := adminwebauthn.NewService(
 		store,
 		adminwebauthn.Options{
@@ -194,6 +220,7 @@ func main() {
 		Audit:         auditService,
 		OAuth:         oauthService,
 		OAuthCallback: callbackService,
+		Federation:    federatedAdmin,
 	})
 
 	server := &http.Server{

@@ -7,6 +7,7 @@ import (
 	"github.com/vtmattedi/mw-oauth-service/internal/adminwebauthn"
 	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
+	"github.com/vtmattedi/mw-oauth-service/internal/federation"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
 )
 
@@ -16,138 +17,161 @@ func newAdminRouter(
 	projects *project.Service,
 	auditService *audit.Service,
 	build buildinfo.Info,
+	federatedAdmin *federation.Authenticator,
 ) http.Handler {
+	if federatedAdmin == nil {
+		federatedAdmin, _ = federation.NewAuthenticator(
+			federation.ModeLocal,
+			"",
+			nil,
+		)
+	}
 	mux := http.NewServeMux()
 
-	mux.HandleFunc(
-		"POST /admin/api/auth/login",
-		AdminLogin(service),
-	)
+	localAuthEnabled := federatedAdmin == nil || federatedAdmin.Mode() != federation.ModeFederated
+	if localAuthEnabled {
+		mux.HandleFunc(
+			"POST /admin/api/auth/login",
+			adminLocalOnly(federatedAdmin, AdminLogin(service)).ServeHTTP,
+		)
 
-	mux.Handle(
-		"GET /admin/api/auth/me",
-		service.SessionOnly(
-			AdminMe(),
-		),
-	)
+		mux.Handle(
+			"GET /admin/api/auth/me",
+			adminLocalOnly(federatedAdmin, service.SessionOnly(
+				AdminMe(),
+			)),
+		)
 
-	mux.Handle(
-		"POST /admin/api/auth/csrf",
-		service.SessionOnly(
-			AdminCSRF(service),
-		),
-	)
+		mux.Handle(
+			"POST /admin/api/auth/csrf",
+			adminLocalOnly(federatedAdmin, service.SessionOnly(
+				AdminCSRF(service),
+			)),
+		)
 
-	mux.Handle(
-		"POST /admin/api/auth/logout",
-		service.SessionAndCSRF(
-			AdminLogout(service),
-		),
-	)
+		mux.Handle(
+			"POST /admin/api/auth/logout",
+			adminLocalOnly(federatedAdmin, service.SessionAndCSRF(
+				AdminLogout(service),
+			)),
+		)
+	}
 
-	if webAuthnService != nil {
+	if webAuthnService != nil && localAuthEnabled {
 		mux.Handle(
 			"GET /admin/api/auth/webauthn",
-			service.SessionOnly(
+			adminLocalOnly(federatedAdmin, service.SessionOnly(
 				AdminWebAuthnList(webAuthnService),
-			),
+			)),
 		)
 
 		mux.Handle(
 			"POST /admin/api/auth/webauthn/register/options",
-			service.SessionAndCSRF(
+			adminLocalOnly(federatedAdmin, service.SessionAndCSRF(
 				AdminWebAuthnRegisterOptions(
 					webAuthnService,
 					auditService,
 				),
-			),
+			)),
 		)
 
 		mux.Handle(
 			"POST /admin/api/auth/webauthn/register/verify",
-			service.SessionAndCSRF(
+			adminLocalOnly(federatedAdmin, service.SessionAndCSRF(
 				AdminWebAuthnRegisterVerify(
 					webAuthnService,
 					auditService,
 				),
-			),
+			)),
 		)
 
 		mux.Handle(
 			"DELETE /admin/api/auth/webauthn/{credential_id}",
-			service.SessionAndCSRF(
+			adminLocalOnly(federatedAdmin, service.SessionAndCSRF(
 				AdminWebAuthnDelete(
 					webAuthnService,
 					service,
 					auditService,
 				),
-			),
+			)),
 		)
 
 		mux.HandleFunc(
 			"POST /admin/api/auth/webauthn/login/options",
-			AdminWebAuthnLoginOptions(
+			adminLocalOnly(federatedAdmin, AdminWebAuthnLoginOptions(
 				webAuthnService,
 				auditService,
-			),
+			)).ServeHTTP,
 		)
 
 		mux.HandleFunc(
 			"POST /admin/api/auth/webauthn/login/verify",
-			AdminWebAuthnLoginVerify(
+			adminLocalOnly(federatedAdmin, AdminWebAuthnLoginVerify(
 				webAuthnService,
 				service,
 				auditService,
-			),
+			)).ServeHTTP,
 		)
 	}
 
 	if projects != nil {
 		mux.Handle(
 			"GET /admin/api/projects",
-			service.SessionOnly(
+			adminAuthorized(federatedAdmin, service, auditService, federation.ScopeProjectsRead, false,
 				AdminProjectsList(projects),
 			),
 		)
 
 		mux.Handle(
 			"POST /admin/api/projects",
-			service.SessionAndCSRF(
+			adminAuthorized(federatedAdmin, service, auditService, federation.ScopeProjectsWrite, true,
 				AdminProjectCreate(projects),
 			),
 		)
 
 		mux.Handle(
 			"PATCH /admin/api/projects/{id}",
-			service.SessionAndCSRF(
+			adminAuthorized(federatedAdmin, service, auditService, federation.ScopeProjectsWrite, true,
 				AdminProjectUpdate(projects),
 			),
 		)
 
 		mux.Handle(
+			"DELETE /admin/api/projects/{id}",
+			adminAuthorized(
+				federatedAdmin,
+				service,
+				nil,
+				federation.ScopeProjectsDelete,
+				true,
+				AdminProjectDelete(projects),
+			),
+		)
+
+		mux.Handle(
 			"POST /admin/api/projects/{id}/rotate-key",
-			service.SessionAndCSRF(
+			adminAuthorized(federatedAdmin, service, auditService, federation.ScopeCredentialsRotate, true,
 				AdminProjectRotateAPIKey(projects),
 			),
 		)
 
 		mux.Handle(
 			"POST /admin/api/projects/{id}/rotate-callback-secret",
-			service.SessionAndCSRF(
+			adminAuthorized(federatedAdmin, service, auditService, federation.ScopeCredentialsRotate, true,
 				AdminProjectRotateCallbackSecret(projects),
 			),
 		)
 
 		mux.Handle(
 			"GET /admin/api/projects/{id}/oauth/google",
-			service.SessionOnly(
+			adminAuthorized(federatedAdmin, service, auditService, federation.ScopePolicyRead, false,
 				AdminProjectGoogleConfigGet(projects),
 			),
 		)
 
 		mux.Handle(
 			"PUT /admin/api/projects/{id}/oauth/google",
-			service.SessionAndCSRF(
+			adminAuthorized(federatedAdmin, service, auditService, federation.ScopePolicyWrite, true,
 				AdminProjectGoogleConfigPut(projects),
 			),
 		)
@@ -155,21 +179,21 @@ func newAdminRouter(
 
 	mux.Handle(
 		"GET /admin/api/server",
-		service.SessionOnly(
+		adminAuthorized(federatedAdmin, service, auditService, federation.ScopeServerRead, false,
 			AdminServer(build),
 		),
 	)
 
 	mux.Handle(
 		"GET /admin/api/docs",
-		service.SessionOnly(
+		adminAuthorized(federatedAdmin, service, auditService, federation.ScopeServerRead, false,
 			AdminDocsList(),
 		),
 	)
 
 	mux.Handle(
 		"GET /admin/api/docs/{version}",
-		service.SessionOnly(
+		adminAuthorized(federatedAdmin, service, auditService, federation.ScopeServerRead, false,
 			AdminDocsGet(),
 		),
 	)
@@ -177,21 +201,21 @@ func newAdminRouter(
 	if auditService != nil {
 		mux.Handle(
 			"GET /admin/api/audit",
-			service.SessionOnly(
+			adminAuthorized(federatedAdmin, service, auditService, federation.ScopeAuditRead, false,
 				AdminAuditList(auditService),
 			),
 		)
 
 		mux.Handle(
 			"GET /admin/api/audit/{id}",
-			service.SessionOnly(
+			adminAuthorized(federatedAdmin, service, auditService, federation.ScopeAuditRead, false,
 				AdminAuditGet(auditService),
 			),
 		)
 
 		mux.Handle(
 			"GET /admin/api/metrics",
-			service.SessionOnly(
+			adminAuthorized(federatedAdmin, service, auditService, federation.ScopeMetricsRead, false,
 				AdminOAuthMetrics(auditService),
 			),
 		)

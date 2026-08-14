@@ -8,9 +8,10 @@ import (
 )
 
 var (
-	ErrNotFound   = errors.New("project not found")
-	ErrConflict   = errors.New("project conflict")
-	ErrValidation = errors.New("project validation failed")
+	ErrNotFound     = errors.New("project not found")
+	ErrConflict     = errors.New("project conflict")
+	ErrDependencies = errors.New("project has dependencies")
+	ErrValidation   = errors.New("project validation failed")
 )
 
 type CreateRecord struct {
@@ -47,6 +48,12 @@ type Store interface {
 		id int64,
 		name string,
 		enabled bool,
+	) (domain.Project, error)
+
+	DeleteProject(
+		ctx context.Context,
+		id int64,
+		event domain.AuditEvent,
 	) (domain.Project, error)
 
 	UpdateProjectTokenHash(
