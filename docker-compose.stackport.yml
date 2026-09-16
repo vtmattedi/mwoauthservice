@@ -10,8 +10,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    ports:
-      - "{{SP:AUTO}}:8282"
+    environment:
+      PORT: "8282"
+    expose:
+      - "8282"
     volumes:
       - oauth-data:/app/data
     healthcheck:

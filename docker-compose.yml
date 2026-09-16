@@ -10,8 +10,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    ports:
-      - "127.0.0.1:${HOST_PORT:-8282}:8282"
+    environment:
+      PORT: "8282"
+    expose:
+      - "8282"
     volumes:
       - oauth-data:/app/data
     healthcheck:
