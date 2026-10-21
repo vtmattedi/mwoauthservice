@@ -287,6 +287,58 @@ Failure/denial example:
 
 Authorization codes are never passed to consuming projects.
 
+### 6.1 Google access-token renewal
+
+The consuming project's backend owns durable storage of the Google refresh
+token. MW OAuth Service owns the Google OAuth client secret. A project must
+never be given that shared secret and therefore must not call Google's token
+endpoint using MW's OAuth client credentials.
+
+The current v1 API does not expose a token-renewal endpoint. Consequently,
+long-lived Google access through this broker is not supported after the initial
+access token expires. Re-running the authorization flow is the only currently
+implemented way to obtain another access token.
+
+Supporting renewal requires an authenticated backend endpoint such as:
+
+```http
+POST /v1/oauth/google/refresh
+Authorization: Bearer mw_live_<project-key>
+Content-Type: application/json
+
+{
+  "refresh_token": "1//..."
+}
+```
+
+That future endpoint would authenticate and rate-limit the project, keep the
+submitted refresh token only transiently in memory, and exchange it with Google
+using the MW-owned client credentials. It would return only the renewed access
+token data:
+
+```json
+{
+  "access_token": "ya29...",
+  "expires_in": 3599,
+  "scope": "https://www.googleapis.com/auth/calendar",
+  "token_type": "Bearer"
+}
+```
+
+After verifying the original signed callback, the project must store the
+refresh token encrypted at rest and associate it with its local user/account or
+integration. Google normally does not return a new `refresh_token` during
+renewal, so the project must retain its stored refresh token unless Google
+explicitly returns a replacement. The project should calculate access-token
+expiry from the response receipt time, refresh shortly before expiry, and
+serialize concurrent refresh attempts for the same OAuth connection.
+
+If Google returns `invalid_grant`, the refresh token is no longer usable. The
+project must mark the connection as requiring reauthorization and send the user
+through `POST /v1/oauth/google/authorize` again. The renewal endpoint must
+redact provider tokens from logs, errors, metrics, and audit records. Refresh
+tokens and access tokens must never be sent to a browser or placed in URLs.
+
 ## 7. Callback signature protocol
 
 Use per-project HMAC-SHA256.

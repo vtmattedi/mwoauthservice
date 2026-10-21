@@ -136,6 +136,52 @@ Failure payload:
 
 The project must verify the signature using the raw request body and return `2xx` only after durably accepting/storing the result.
 
+## Google access-token renewal
+
+The project owns encrypted-at-rest storage of the callback's `refresh_token`,
+while MW owns the Google OAuth client secret. Projects must not receive that
+shared secret or call Google's token endpoint using MW's credentials.
+
+The current v1 API has no token-renewal endpoint. Long-lived Google access is
+therefore not currently supported after the initial access token expires; the
+implemented fallback is a new authorization transaction.
+
+Renewal support requires a future authenticated backend endpoint such as:
+
+```http
+POST /v1/oauth/google/refresh
+Authorization: Bearer mw_live_<project-key>
+Content-Type: application/json
+
+{
+  "refresh_token": "1//..."
+}
+```
+
+MW would authenticate and rate-limit the project, keep the submitted refresh
+token only transiently in memory, and exchange it with Google using the
+MW-owned client credentials. Example response:
+
+```json
+{
+  "access_token": "ya29...",
+  "expires_in": 3599,
+  "scope": "https://www.googleapis.com/auth/calendar",
+  "token_type": "Bearer"
+}
+```
+
+Retain the existing refresh token when Google omits `refresh_token` during
+renewal. Calculate access-token expiry from the response receipt time, refresh
+shortly before expiry, and serialize concurrent refresh attempts for the same
+connection. If Google returns `invalid_grant`, mark the connection as requiring
+reauthorization and start a new transaction through
+`POST /v1/oauth/google/authorize`.
+
+The future endpoint must redact provider tokens from logs, errors, metrics, and
+audit records. Provider tokens must remain backend-only and must never be
+placed in a URL or returned to a browser.
+
 ## Admin API
 
 All admin endpoints use `/admin/api`.
