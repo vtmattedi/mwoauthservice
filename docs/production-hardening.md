@@ -94,6 +94,31 @@ CALLBACK_SECRET_ACTIVE_KEY_VERSION=1
 
 Do not commit or log secret values.
 
+### Per-project Google client secrets (v1.1)
+
+Per-project Google OAuth client secrets are stored encrypted (AES-256-GCM)
+with their own keyring, independent of the callback-secret keyring:
+
+```env
+GOOGLE_CLIENT_SECRET_KEYS=1:<base64url-32-byte-key>
+GOOGLE_CLIENT_SECRET_ACTIVE_KEY_VERSION=1
+```
+
+- Generate a key that is not reused anywhere else. The service refuses to
+  start if this keyring shares key material with `CALLBACK_SECRET_KEYS`,
+  `WEBAUTHN_CREDENTIAL_KEYS` or `TOKEN_ENCRYPTION_KEY`.
+- The keyring is optional. Without it only the legacy global Google client
+  (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`) works.
+- To rotate, add the new key as the next version, set it active, and keep every
+  older version listed. Stored secrets stay readable by the version that
+  encrypted them.
+- **Back up the SQLite database together with the complete keyring.** Losing a
+  key version makes the credentials encrypted with it unrecoverable. Such a
+  credential is reported as broken; the service does not silently fall back to
+  the legacy global client.
+- Ciphertext is bound to its credential ID and project ID, so rows copied
+  between credentials or projects fail to decrypt.
+
 ## Signed project callback
 
 Headers:

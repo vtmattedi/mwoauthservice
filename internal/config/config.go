@@ -29,6 +29,8 @@ type Config struct {
 	WebAuthnCredentialActiveKeyVersion int
 	CallbackSecretKeys                 string
 	CallbackSecretActiveKeyVersion     int
+	GoogleClientSecretKeys             string
+	GoogleClientSecretActiveKeyVersion int
 	GoogleClientID                     string
 	GoogleClientSecret                 string
 	GoogleRedirectURI                  string
@@ -149,6 +151,29 @@ func Load() (Config, error) {
 			)
 		}
 		cfg.CallbackSecretActiveKeyVersion = activeVersion
+	}
+
+	// Per-project Google client secret keyring. Optional: when empty, the
+	// per-project credential feature is unavailable and only the legacy
+	// global client can be used.
+	cfg.GoogleClientSecretKeys = strings.TrimSpace(
+		os.Getenv("GOOGLE_CLIENT_SECRET_KEYS"),
+	)
+
+	googleKeyVersionRaw := strings.TrimSpace(
+		os.Getenv("GOOGLE_CLIENT_SECRET_ACTIVE_KEY_VERSION"),
+	)
+	if googleKeyVersionRaw == "" {
+		cfg.GoogleClientSecretActiveKeyVersion = 1
+	} else {
+		version, err := strconv.Atoi(googleKeyVersionRaw)
+		if err != nil || version <= 0 {
+			return Config{}, fmt.Errorf(
+				"invalid GOOGLE_CLIENT_SECRET_ACTIVE_KEY_VERSION %q",
+				googleKeyVersionRaw,
+			)
+		}
+		cfg.GoogleClientSecretActiveKeyVersion = version
 	}
 
 	cfg.GoogleClientID = strings.TrimSpace(

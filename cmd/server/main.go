@@ -87,6 +87,41 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Per-project Google client secrets use their own keyring. It is optional:
+	// without it only the legacy global Google client is available, and the
+	// service never falls back silently if a stored credential cannot be
+	// decrypted.
+	var googleCredentialKeys *secretbox.GoogleCredentialKeyring
+	if cfg.GoogleClientSecretKeys != "" {
+		for name, other := range map[string]string{
+			"CALLBACK_SECRET_KEYS":     cfg.CallbackSecretKeys,
+			"WEBAUTHN_CREDENTIAL_KEYS": cfg.WebAuthnCredentialKeys,
+			"TOKEN_ENCRYPTION_KEY":     cfg.TokenEncryptionKey,
+		} {
+			if err := secretbox.EnsureIndependentGoogleCredentialKeys(
+				cfg.GoogleClientSecretKeys,
+				name,
+				other,
+			); err != nil {
+				slog.Error("google client secret keyring configuration failed", "error", err)
+				os.Exit(1)
+			}
+		}
+
+		googleCredentialKeys, err = secretbox.NewGoogleCredentialKeyring(
+			cfg.GoogleClientSecretKeys,
+			cfg.GoogleClientSecretActiveKeyVersion,
+		)
+		if err != nil {
+			slog.Error("google client secret keyring configuration failed", "error", err)
+			os.Exit(1)
+		}
+	}
+	slog.Info(
+		"google client credential encryption",
+		"enabled", googleCredentialKeys != nil,
+	)
+
 	auditService := audit.NewService(store)
 
 	projectService := project.NewService(

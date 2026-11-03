@@ -77,6 +77,35 @@ func TestLoadRejectsInvalidAdminAuthMode(t *testing.T) {
 	}
 }
 
+func TestLoadGoogleClientSecretKeyring(t *testing.T) {
+	t.Setenv("ADMIN_AUTH_MODE", "")
+	t.Setenv("GOOGLE_CLIENT_SECRET_KEYS", "")
+	t.Setenv("GOOGLE_CLIENT_SECRET_ACTIVE_KEY_VERSION", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GoogleClientSecretKeys != "" || cfg.GoogleClientSecretActiveKeyVersion != 1 {
+		t.Fatalf("unexpected defaults: %q %d", cfg.GoogleClientSecretKeys, cfg.GoogleClientSecretActiveKeyVersion)
+	}
+
+	t.Setenv("GOOGLE_CLIENT_SECRET_KEYS", "2:abc")
+	t.Setenv("GOOGLE_CLIENT_SECRET_ACTIVE_KEY_VERSION", "2")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GoogleClientSecretKeys != "2:abc" || cfg.GoogleClientSecretActiveKeyVersion != 2 {
+		t.Fatalf("unexpected values: %q %d", cfg.GoogleClientSecretKeys, cfg.GoogleClientSecretActiveKeyVersion)
+	}
+
+	t.Setenv("GOOGLE_CLIENT_SECRET_ACTIVE_KEY_VERSION", "0")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected non-positive active version to fail")
+	}
+}
+
 func TestParseLogLevelRejectsInvalid(t *testing.T) {
 	if _, err := parseLogLevel("verbose"); err == nil {
 		t.Fatal("expected invalid LOG_LEVEL to fail")
