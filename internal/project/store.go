@@ -56,6 +56,12 @@ type Store interface {
 		event domain.AuditEvent,
 	) (domain.Project, error)
 
+	SetProjectLegacyEnabled(
+		ctx context.Context,
+		id int64,
+		enabled bool,
+	) (domain.Project, error)
+
 	UpdateProjectTokenHash(
 		ctx context.Context,
 		id int64,

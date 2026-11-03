@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/vtmattedi/mw-oauth-service/internal/appauth"
 	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/domain"
 	"github.com/vtmattedi/mw-oauth-service/internal/oauth"
@@ -25,10 +26,30 @@ type publicOAuthError struct {
 	Message string `json:"message"`
 }
 
+// AuthorizeOption configures PublicGoogleAuthorize.
+type AuthorizeOption func(*authorizeOptions)
+
+type authorizeOptions struct {
+	appAuth *appauth.Service
+}
+
+// WithAppAuth lets the endpoint accept short-lived MW access tokens
+// (mw_at_...) carrying the google.authorize scope, in addition to the legacy
+// project API key.
+func WithAppAuth(service *appauth.Service) AuthorizeOption {
+	return func(o *authorizeOptions) { o.appAuth = service }
+}
+
 func PublicGoogleAuthorize(
 	oauthService *oauth.Service,
 	auditService *audit.Service,
+	opts ...AuthorizeOption,
 ) http.HandlerFunc {
+	var options authorizeOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		rawAPIKey, ok := bearerToken(
 			r.Header.Get("Authorization"),
@@ -56,6 +77,16 @@ func PublicGoogleAuthorize(
 				http.StatusUnauthorized,
 				"invalid_api_key",
 				"invalid or missing project API key",
+			)
+			return
+		}
+
+		// Short-lived MW access tokens are recognised by their prefix; they
+		// are never looked up as legacy API keys.
+		if options.appAuth != nil &&
+			strings.HasPrefix(rawAPIKey, appauth.TokenPrefix) {
+			authorizeWithAppToken(
+				w, r, oauthService, auditService, options.appAuth, rawAPIKey,
 			)
 			return
 		}
@@ -143,18 +174,14 @@ func PublicGoogleAuthorize(
 			return
 		}
 
-		var request oauth.GoogleAuthorizationRequest
-		if err := decodeOAuthAuthorizeJSON(
-			w,
-			r,
-			&request,
-		); err != nil {
+		// The project may have moved fully to MW client credentials.
+		if !authenticatedProject.LegacyEnabled {
 			projectID := authenticatedProject.ID
 			recordOAuthAudit(
 				r,
 				auditService,
 				domain.AuditEvent{
-					EventType:    "oauth.request.rejected.invalid_body",
+					EventType:    "oauth.request.rejected.legacy_disabled",
 					Status:       "rejected",
 					Severity:     "warning",
 					ProjectID:    &projectID,
@@ -163,61 +190,199 @@ func PublicGoogleAuthorize(
 					Path:         r.URL.Path,
 					Origin:       r.Header.Get("Origin"),
 					RemoteIP:     requestRemoteIP(r),
-					ReasonCode:   "invalid_body",
+					ReasonCode:   "legacy_disabled",
 					AttemptCount: 1,
 				},
 			)
 
 			writePublicOAuthError(
 				w,
-				http.StatusBadRequest,
-				"invalid_request",
-				"invalid request body",
+				http.StatusForbidden,
+				"legacy_auth_disabled",
+				"the project API key is disabled for this project; use MW client credentials",
 			)
 			return
 		}
 
-		result, err := oauthService.AuthorizeGoogle(
-			r.Context(),
-			authenticatedProject,
-			request,
+		completeGoogleAuthorize(
+			w, r, oauthService, auditService, authenticatedProject,
+			"legacy_api_key", "",
 		)
-		if err != nil {
-			handleGoogleAuthorizeError(
-				w,
-				r,
-				auditService,
-				authenticatedProject.ID,
-				err,
-			)
-			return
+	}
+}
+
+// authorizeWithAppToken authenticates a short-lived MW access token, requires
+// the google.authorize scope, and then runs the normal authorization flow.
+func authorizeWithAppToken(
+	w http.ResponseWriter,
+	r *http.Request,
+	oauthService *oauth.Service,
+	auditService *audit.Service,
+	appAuth *appauth.Service,
+	rawToken string,
+) {
+	reject := func(
+		status int,
+		code string,
+		message string,
+		eventType string,
+		projectID *int64,
+		challenge string,
+	) {
+		recordOAuthAudit(r, auditService, domain.AuditEvent{
+			EventType:    eventType,
+			Status:       "rejected",
+			Severity:     "warning",
+			ProjectID:    projectID,
+			RequestID:    RequestIDFromContext(r.Context()),
+			Method:       r.Method,
+			Path:         r.URL.Path,
+			HTTPStatus:   &status,
+			Origin:       r.Header.Get("Origin"),
+			RemoteIP:     requestRemoteIP(r),
+			ReasonCode:   code,
+			AttemptCount: 1,
+		})
+		if challenge != "" {
+			w.Header().Set("WWW-Authenticate", challenge)
 		}
+		writePublicOAuthError(w, status, code, message)
+	}
 
+	principal, err := appAuth.Authenticate(r.Context(), rawToken)
+	if err != nil {
+		switch {
+		case errors.Is(err, appauth.ErrInvalidToken):
+			reject(http.StatusUnauthorized, "invalid_token",
+				"invalid, expired or revoked access token",
+				"oauth.request.rejected.invalid_token", nil,
+				`Bearer realm="mw-oauth", error="invalid_token"`)
+		case errors.Is(err, appauth.ErrProjectDisabled):
+			reject(http.StatusForbidden, "project_disabled",
+				"project is disabled",
+				"oauth.request.rejected.disabled_project", nil, "")
+		case errors.Is(err, appauth.ErrClientDisabled):
+			reject(http.StatusForbidden, "client_disabled",
+				"application client is disabled",
+				"oauth.request.rejected.disabled_client", nil, "")
+		default:
+			recordInternalOAuthFailure(r, auditService, nil, "", err)
+			writePublicOAuthError(w, http.StatusInternalServerError,
+				"internal_error", "could not authenticate project")
+		}
+		return
+	}
+
+	projectID := principal.ProjectID
+	if !principal.HasScope(appauth.ScopeGoogleAuthorize) {
+		reject(http.StatusForbidden, "insufficient_scope",
+			"the access token does not grant "+appauth.ScopeGoogleAuthorize,
+			"oauth.request.rejected.insufficient_scope", &projectID,
+			`Bearer realm="mw-oauth", error="insufficient_scope", scope="`+
+				appauth.ScopeGoogleAuthorize+`"`)
+		return
+	}
+
+	completeGoogleAuthorize(
+		w, r, oauthService, auditService,
+		domain.Project{ID: principal.ProjectID},
+		"app_token", principal.ClientID,
+	)
+}
+
+// completeGoogleAuthorize decodes the request, starts the Google
+// authorization and audits it. authMethod and mwClientID are recorded so
+// legacy usage can be observed before the legacy path is retired.
+func completeGoogleAuthorize(
+	w http.ResponseWriter,
+	r *http.Request,
+	oauthService *oauth.Service,
+	auditService *audit.Service,
+	authenticatedProject domain.Project,
+	authMethod string,
+	mwClientID string,
+) {
+	var request oauth.GoogleAuthorizationRequest
+	if err := decodeOAuthAuthorizeJSON(
+		w,
+		r,
+		&request,
+	); err != nil {
 		projectID := authenticatedProject.ID
-		status200 := http.StatusOK
-
 		recordOAuthAudit(
 			r,
 			auditService,
 			domain.AuditEvent{
-				EventType:     "oauth.request.accepted",
-				Status:        "accepted",
-				Severity:      "info",
-				ProjectID:     &projectID,
-				TransactionID: result.TransactionID,
-				RequestID:     RequestIDFromContext(r.Context()),
-				Method:        r.Method,
-				Path:          r.URL.Path,
-				HTTPStatus:    &status200,
-				Origin:        r.Header.Get("Origin"),
-				RemoteIP:      requestRemoteIP(r),
-				ReasonCode:    "accepted",
-				AttemptCount:  1,
+				EventType:    "oauth.request.rejected.invalid_body",
+				Status:       "rejected",
+				Severity:     "warning",
+				ProjectID:    &projectID,
+				RequestID:    RequestIDFromContext(r.Context()),
+				Method:       r.Method,
+				Path:         r.URL.Path,
+				Origin:       r.Header.Get("Origin"),
+				RemoteIP:     requestRemoteIP(r),
+				ReasonCode:   "invalid_body",
+				AttemptCount: 1,
+				Metadata:     map[string]any{"auth_method": authMethod},
 			},
 		)
 
-		writeJSON(w, http.StatusOK, result)
+		writePublicOAuthError(
+			w,
+			http.StatusBadRequest,
+			"invalid_request",
+			"invalid request body",
+		)
+		return
 	}
+
+	result, err := oauthService.AuthorizeGoogle(
+		r.Context(),
+		authenticatedProject,
+		request,
+	)
+	if err != nil {
+		handleGoogleAuthorizeError(
+			w,
+			r,
+			auditService,
+			authenticatedProject.ID,
+			err,
+		)
+		return
+	}
+
+	projectID := authenticatedProject.ID
+	status200 := http.StatusOK
+
+	metadata := map[string]any{"auth_method": authMethod}
+	if mwClientID != "" {
+		metadata["mw_client_id"] = mwClientID
+	}
+
+	recordOAuthAudit(
+		r,
+		auditService,
+		domain.AuditEvent{
+			EventType:     "oauth.request.accepted",
+			Status:        "accepted",
+			Severity:      "info",
+			ProjectID:     &projectID,
+			TransactionID: result.TransactionID,
+			RequestID:     RequestIDFromContext(r.Context()),
+			Method:        r.Method,
+			Path:          r.URL.Path,
+			HTTPStatus:    &status200,
+			Origin:        r.Header.Get("Origin"),
+			RemoteIP:      requestRemoteIP(r),
+			ReasonCode:    "accepted",
+			AttemptCount:  1,
+			Metadata:      metadata,
+		},
+	)
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 func handleGoogleAuthorizeError(

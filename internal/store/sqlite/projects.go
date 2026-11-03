@@ -16,7 +16,7 @@ func (s *Store) ListProjects(
 ) ([]domain.Project, error) {
 	rows, err := s.db.QueryContext(
 		ctx,
-		`SELECT id, name, enabled, created_at, updated_at
+		`SELECT `+projectColumns+`
          FROM projects
          ORDER BY name COLLATE NOCASE ASC, id ASC`,
 	)
@@ -27,20 +27,10 @@ func (s *Store) ListProjects(
 
 	projects := make([]domain.Project, 0)
 	for rows.Next() {
-		var item domain.Project
-		var enabled int
-
-		if err := rows.Scan(
-			&item.ID,
-			&item.Name,
-			&enabled,
-			&item.CreatedAt,
-			&item.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan project: %w", err)
+		item, err := scanProject(rows)
+		if err != nil {
+			return nil, err
 		}
-
-		item.Enabled = enabled != 0
 		projects = append(projects, item)
 	}
 
@@ -100,7 +90,7 @@ func (s *Store) GetProject(
 	return scanProject(
 		s.db.QueryRowContext(
 			ctx,
-			`SELECT id, name, enabled, created_at, updated_at
+			`SELECT `+projectColumns+`
              FROM projects
              WHERE id = ?
              LIMIT 1`,
@@ -116,7 +106,7 @@ func (s *Store) GetProjectByTokenHash(
 	return scanProject(
 		s.db.QueryRowContext(
 			ctx,
-			`SELECT id, name, enabled, created_at, updated_at
+			`SELECT `+projectColumns+`
              FROM projects
              WHERE token_hash = ?
              LIMIT 1`,
@@ -183,7 +173,7 @@ func (s *Store) DeleteProject(
 
 	deleted, err := scanProject(tx.QueryRowContext(
 		ctx,
-		`SELECT id, name, enabled, created_at, updated_at
+		`SELECT `+projectColumns+`
          FROM projects
          WHERE id = ?
          LIMIT 1`,
@@ -318,14 +308,24 @@ func (s *Store) UpdateProjectCallbackSecret(
 	return nil
 }
 
-func scanProject(row *sql.Row) (domain.Project, error) {
+// projectColumns lists the columns scanProject expects, in order.
+const projectColumns = `id, name, enabled, legacy_enabled,
+	EXISTS(
+		SELECT 1 FROM mw_application_clients c
+		WHERE c.project_id = projects.id
+	),
+	created_at, updated_at`
+
+func scanProject(row rowScanner) (domain.Project, error) {
 	var item domain.Project
-	var enabled int
+	var enabled, legacyEnabled, hasClient int
 
 	err := row.Scan(
 		&item.ID,
 		&item.Name,
 		&enabled,
+		&legacyEnabled,
+		&hasClient,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 	)
@@ -340,7 +340,41 @@ func scanProject(row *sql.Row) (domain.Project, error) {
 	}
 
 	item.Enabled = enabled != 0
+	item.LegacyEnabled = legacyEnabled != 0
+	item.AppCredentialsConfigured = hasClient != 0
+	item.ResolveIntegrationMode()
 	return item, nil
+}
+
+// SetProjectLegacyEnabled turns the legacy mw_live_ integration on or off.
+func (s *Store) SetProjectLegacyEnabled(
+	ctx context.Context,
+	id int64,
+	enabled bool,
+) (domain.Project, error) {
+	result, err := s.db.ExecContext(
+		ctx,
+		`UPDATE projects
+         SET
+            legacy_enabled = ?,
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = ?`,
+		boolInt(enabled),
+		id,
+	)
+	if err != nil {
+		return domain.Project{}, fmt.Errorf("set project legacy mode: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return domain.Project{}, fmt.Errorf("read legacy mode rows: %w", err)
+	}
+	if affected == 0 {
+		return domain.Project{}, project.ErrNotFound
+	}
+
+	return s.GetProject(ctx, id)
 }
 
 func boolInt(value bool) int {

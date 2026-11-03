@@ -106,6 +106,29 @@ func TestLoadGoogleClientSecretKeyring(t *testing.T) {
 	}
 }
 
+func TestLoadAppAccessTokenTTL(t *testing.T) {
+	t.Setenv("ADMIN_AUTH_MODE", "")
+	t.Setenv("MW_APP_ACCESS_TOKEN_TTL_SECONDS", "")
+
+	cfg, err := Load()
+	if err != nil || cfg.AppAccessTokenTTL != 900*time.Second {
+		t.Fatalf("default = %v, %v", cfg.AppAccessTokenTTL, err)
+	}
+
+	t.Setenv("MW_APP_ACCESS_TOKEN_TTL_SECONDS", "120")
+	cfg, err = Load()
+	if err != nil || cfg.AppAccessTokenTTL != 120*time.Second {
+		t.Fatalf("custom = %v, %v", cfg.AppAccessTokenTTL, err)
+	}
+
+	for _, bad := range []string{"0", "59", "3601", "-5", "abc", "900s"} {
+		t.Setenv("MW_APP_ACCESS_TOKEN_TTL_SECONDS", bad)
+		if _, err := Load(); err == nil {
+			t.Fatalf("%q should be rejected", bad)
+		}
+	}
+}
+
 func TestParseLogLevelRejectsInvalid(t *testing.T) {
 	if _, err := parseLogLevel("verbose"); err == nil {
 		t.Fatal("expected invalid LOG_LEVEL to fail")

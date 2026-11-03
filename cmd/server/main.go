@@ -14,6 +14,7 @@ import (
 	"github.com/vtmattedi/mw-oauth-service/internal/admin"
 	"github.com/vtmattedi/mw-oauth-service/internal/adminwebauthn"
 	"github.com/vtmattedi/mw-oauth-service/internal/api"
+	"github.com/vtmattedi/mw-oauth-service/internal/appauth"
 	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 	"github.com/vtmattedi/mw-oauth-service/internal/config"
@@ -128,6 +129,8 @@ func main() {
 		store,
 		callbackSecrets,
 	)
+
+	appAuthService := appauth.NewService(store, cfg.AppAccessTokenTTL)
 
 	oauthService, err := oauth.NewService(
 		store,
@@ -255,6 +258,8 @@ func main() {
 		Audit:         auditService,
 		OAuth:         oauthService,
 		OAuthCallback: callbackService,
+		AppAuth:       appAuthService,
+		TokenLimits:   api.DefaultTokenLimits(),
 		Federation:    federatedAdmin,
 	})
 
@@ -266,6 +271,24 @@ func main() {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+
+	// Purge expired MW access tokens in the background until shutdown.
+	cleanupCtx, stopCleanup := context.WithCancel(context.Background())
+	defer stopCleanup()
+	go appAuthService.RunCleanup(
+		cleanupCtx,
+		appauth.DefaultCleanupInterval,
+		appauth.DefaultTokenRetention,
+		func(deleted int64, err error) {
+			if err != nil {
+				slog.Error("expired access token cleanup failed", "error", err)
+				return
+			}
+			if deleted > 0 {
+				slog.Info("expired access tokens removed", "count", deleted)
+			}
+		},
+	)
 
 	errCh := make(chan error, 1)
 

@@ -190,6 +190,19 @@ func (s *Service) Delete(
 	return s.store.DeleteProject(ctx, id, normalized)
 }
 
+// SetLegacyEnabled switches the project's legacy mw_live_ integration on or
+// off. Turn it off only after the consumer has moved to MW client credentials.
+func (s *Service) SetLegacyEnabled(
+	ctx context.Context,
+	id int64,
+	enabled bool,
+) (domain.Project, error) {
+	if id <= 0 {
+		return domain.Project{}, ErrNotFound
+	}
+	return s.store.SetProjectLegacyEnabled(ctx, id, enabled)
+}
+
 func (s *Service) RotateAPIKey(
 	ctx context.Context,
 	id int64,

@@ -9,6 +9,7 @@ import (
 
 	"github.com/vtmattedi/mw-oauth-service/internal/admin"
 	"github.com/vtmattedi/mw-oauth-service/internal/adminwebauthn"
+	"github.com/vtmattedi/mw-oauth-service/internal/appauth"
 	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 	"github.com/vtmattedi/mw-oauth-service/internal/federation"
@@ -29,7 +30,11 @@ type Dependencies struct {
 	Audit         *audit.Service
 	OAuth         *oauth.Service
 	OAuthCallback *oauth.CallbackService
-	Federation    *federation.Authenticator
+	AppAuth       *appauth.Service
+	// TokenLimits guards POST /v1/auth/token. The zero value means no
+	// limits; main supplies DefaultTokenLimits().
+	TokenLimits TokenLimits
+	Federation  *federation.Authenticator
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -50,12 +55,24 @@ func NewRouter(deps Dependencies) http.Handler {
 		})
 	})
 
+	if deps.AppAuth != nil {
+		mux.HandleFunc(
+			"POST /v1/auth/token",
+			TokenEndpoint(
+				deps.AppAuth,
+				deps.Audit,
+				deps.TokenLimits,
+			),
+		)
+	}
+
 	if deps.OAuth != nil {
 		mux.HandleFunc(
 			"POST /v1/oauth/google/authorize",
 			PublicGoogleAuthorize(
 				deps.OAuth,
 				deps.Audit,
+				WithAppAuth(deps.AppAuth),
 			),
 		)
 	}

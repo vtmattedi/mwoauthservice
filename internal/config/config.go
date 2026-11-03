@@ -29,6 +29,7 @@ type Config struct {
 	WebAuthnCredentialActiveKeyVersion int
 	CallbackSecretKeys                 string
 	CallbackSecretActiveKeyVersion     int
+	AppAccessTokenTTL                  time.Duration
 	GoogleClientSecretKeys             string
 	GoogleClientSecretActiveKeyVersion int
 	GoogleClientID                     string
@@ -151,6 +152,22 @@ func Load() (Config, error) {
 			)
 		}
 		cfg.CallbackSecretActiveKeyVersion = activeVersion
+	}
+
+	// MW application access token lifetime. 900s is the v1.1 policy; the
+	// variable exists for tests and emergencies, bounded to a sane range.
+	cfg.AppAccessTokenTTL = 900 * time.Second
+	if ttlRaw := strings.TrimSpace(
+		os.Getenv("MW_APP_ACCESS_TOKEN_TTL_SECONDS"),
+	); ttlRaw != "" {
+		seconds, err := strconv.Atoi(ttlRaw)
+		if err != nil || seconds < 60 || seconds > 3600 {
+			return Config{}, fmt.Errorf(
+				"invalid MW_APP_ACCESS_TOKEN_TTL_SECONDS %q (allowed 60-3600)",
+				ttlRaw,
+			)
+		}
+		cfg.AppAccessTokenTTL = time.Duration(seconds) * time.Second
 	}
 
 	// Per-project Google client secret keyring. Optional: when empty, the

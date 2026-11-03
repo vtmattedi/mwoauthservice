@@ -20,6 +20,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 
 		if strings.HasPrefix(r.URL.Path, "/admin/api/") ||
 			strings.HasPrefix(r.URL.Path, "/v1/oauth/") ||
+			strings.HasPrefix(r.URL.Path, "/v1/auth/") ||
 			strings.HasPrefix(r.URL.Path, "/oauth/") {
 			w.Header().Set("Cache-Control", "no-store, max-age=0")
 			w.Header().Set("Pragma", "no-cache")
