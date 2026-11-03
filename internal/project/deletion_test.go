@@ -41,9 +41,6 @@ func TestDeleteProjectAtomicallyRevokesDataAndPreservesAudit(t *testing.T) {
 	if _, err := service.Get(t.Context(), deletedProject.ID); !errors.Is(err, project.ErrNotFound) {
 		t.Fatalf("deleted project lookup err=%v", err)
 	}
-	if _, err := store.GetProjectByTokenHash(t.Context(), "hash-delete"); !errors.Is(err, project.ErrNotFound) {
-		t.Fatalf("deleted API key hash still resolves: %v", err)
-	}
 	if kept, err := service.Get(t.Context(), otherProject.ID); err != nil || kept.Name != otherProject.Name {
 		t.Fatalf("other project changed: project=%+v err=%v", kept, err)
 	}
@@ -172,8 +169,7 @@ func createStoredProject(
 ) domain.Project {
 	t.Helper()
 	item, err := store.CreateProject(t.Context(), project.CreateRecord{
-		Name: name, Enabled: true, TokenHash: tokenHash,
-		CallbackSecretCiphertext: "ciphertext-" + tokenHash,
+		Name: name, Enabled: true, CallbackSecretCiphertext: "ciphertext-" + tokenHash,
 		CallbackSecretNonce:      "nonce-" + tokenHash,
 		CallbackSecretKeyVersion: 1,
 	})

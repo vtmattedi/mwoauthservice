@@ -75,6 +75,20 @@ func GoogleOAuthCallback(
 			redirectCallbackResult(w, r, outcome)
 			return
 
+		case errors.Is(err, oauth.ErrCredentialUnavailable):
+			recordCallbackAudit(
+				r,
+				auditService,
+				outcome,
+				"oauth.provider.credential_unavailable",
+				"failed",
+				"error",
+				"credential_unavailable",
+				http.StatusSeeOther,
+			)
+			redirectCallbackResult(w, r, outcome)
+			return
+
 		case errors.Is(err, oauth.ErrProviderExchangeFailed):
 			recordCallbackAudit(
 				r,
@@ -101,6 +115,25 @@ func GoogleOAuthCallback(
 				http.StatusSeeOther,
 			)
 			redirectCallbackResult(w, r, outcome)
+			return
+
+		case errors.Is(err, oauth.ErrTemporaryFailure):
+			slog.WarnContext(
+				r.Context(),
+				"Google OAuth callback temporarily failed",
+				"request_id", RequestIDFromContext(r.Context()),
+				"transaction_id", outcome.TransactionID,
+				"project_id", outcome.ProjectID,
+				"error", err,
+			)
+			// The authorization is still pending; the same URL can be retried.
+			w.Header().Set("Retry-After", "5")
+			writePublicOAuthError(
+				w,
+				http.StatusServiceUnavailable,
+				"temporarily_unavailable",
+				"the callback could not be completed right now; try again",
+			)
 			return
 
 		case errors.Is(err, oauth.ErrTransactionNotFound),

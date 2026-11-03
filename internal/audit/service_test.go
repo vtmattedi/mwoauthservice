@@ -2,21 +2,6 @@ package audit
 
 import "testing"
 
-func TestFingerprintAPIKeyDoesNotReturnRawKey(t *testing.T) {
-	raw := "mw_live_example"
-	fingerprint := FingerprintAPIKey(raw)
-
-	if fingerprint == raw {
-		t.Fatal("fingerprint equals raw API key")
-	}
-	if len(fingerprint) != 16 {
-		t.Fatalf(
-			"fingerprint length = %d; want 16",
-			len(fingerprint),
-		)
-	}
-}
-
 func TestSanitizeMetadataRemovesSecrets(t *testing.T) {
 	sanitized := sanitizeMetadata(map[string]any{
 		"safe":          "value",

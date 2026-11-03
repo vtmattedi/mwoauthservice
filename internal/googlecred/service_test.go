@@ -59,8 +59,8 @@ func newFixture(t *testing.T, keys *secretbox.GoogleCredentialKeyring) fixture {
 	for i := range ids {
 		p, err := store.CreateProject(context.Background(), project.CreateRecord{
 			Name: fmt.Sprintf("app-%d", i), Enabled: true,
-			TokenHash: fmt.Sprintf("hash-%d", i), CallbackSecretCiphertext: "c",
-			CallbackSecretNonce: "n", CallbackSecretKeyVersion: 1,
+			CallbackSecretCiphertext: "c",
+			CallbackSecretNonce:      "n", CallbackSecretKeyVersion: 1,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -274,11 +274,6 @@ func TestCredentialsAreIsolatedBetweenProjects(t *testing.T) {
 	f.configure(t, f.p1, clientB, secretB)
 	if still, _ := f.svc.Get(ctx, f.p2, c2.ID); still.State != domain.GoogleCredentialActive {
 		t.Fatalf("other project credential changed: %+v", still)
-	}
-
-	// The legacy reference is not a stored credential.
-	if _, err := f.svc.Resolve(ctx, f.p1, domain.LegacyGoogleCredentialRef, googlecred.PurposeRefresh); !errors.Is(err, googlecred.ErrNotFound) {
-		t.Fatalf("legacy ref: %v", err)
 	}
 }
 

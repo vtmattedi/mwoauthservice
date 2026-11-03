@@ -15,7 +15,7 @@ Starts a Google OAuth authorization transaction.
 #### Authentication
 
 ```http
-Authorization: Bearer mw_live_<project-key>
+Authorization: Bearer mw_at_<access-token>
 ```
 
 #### Request
@@ -49,7 +49,7 @@ Authorization: Bearer mw_live_<project-key>
 
 ```text
 400 invalid request
-401 invalid/missing API key
+401 invalid/missing/expired access token (invalid_token)
 403 disabled project
 403 provider disabled
 403 scope not allowed
@@ -150,7 +150,7 @@ Renewal support requires a future authenticated backend endpoint such as:
 
 ```http
 POST /v1/oauth/google/refresh
-Authorization: Bearer mw_live_<project-key>
+Authorization: Bearer mw_at_<access-token>
 Content-Type: application/json
 
 {
@@ -246,7 +246,6 @@ GET   /admin/api/projects
 POST  /admin/api/projects
 PATCH /admin/api/projects/{id}
 DELETE /admin/api/projects/{id}
-POST  /admin/api/projects/{id}/rotate-key
 POST  /admin/api/projects/{id}/rotate-callback-secret
 GET   /admin/api/projects/{id}/oauth/google
 PUT   /admin/api/projects/{id}/oauth/google
@@ -359,6 +358,6 @@ from <= to
 
 ## Security rules
 
-Never log/store provider authorization codes, access tokens, refresh tokens, project API keys, callback signing secrets, raw state, PKCE verifier, or the Google client secret.
+Never log/store provider authorization codes, access tokens, refresh tokens, MW client secrets, MW access tokens, callback signing secrets, raw state, PKCE verifier, or the Google client secret.
 
 Never place provider tokens in browser URLs.

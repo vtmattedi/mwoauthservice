@@ -39,9 +39,6 @@ func TestProjectLifecycleAndGoogleConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !strings.HasPrefix(credentials.APIKey, "mw_live_") {
-		t.Fatal("unexpected API key prefix")
-	}
 	if !strings.HasPrefix(
 		credentials.CallbackSecret,
 		"mw_whsec_",
@@ -49,35 +46,16 @@ func TestProjectLifecycleAndGoogleConfig(t *testing.T) {
 		t.Fatal("unexpected callback secret prefix")
 	}
 
-	found, err := service.LookupByAPIKey(
-		context.Background(),
-		credentials.APIKey,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if found.ID != credentials.Project.ID {
-		t.Fatalf(
-			"lookup project id = %d; want %d",
-			found.ID,
-			credentials.Project.ID,
-		)
-	}
-
-	var storedTokenHash string
 	var ciphertext string
 	if err := store.DB().QueryRow(
-		`SELECT token_hash, callback_secret_ciphertext
+		`SELECT callback_secret_ciphertext
          FROM projects
          WHERE id = ?`,
 		credentials.Project.ID,
-	).Scan(&storedTokenHash, &ciphertext); err != nil {
+	).Scan(&ciphertext); err != nil {
 		t.Fatal(err)
 	}
 
-	if storedTokenHash == credentials.APIKey {
-		t.Fatal("raw API key was stored")
-	}
 	if ciphertext == credentials.CallbackSecret {
 		t.Fatal("raw callback secret was stored")
 	}
@@ -128,32 +106,6 @@ func TestProjectLifecycleAndGoogleConfig(t *testing.T) {
 			"allowed scopes = %d; want 1",
 			len(loaded.AllowedScopes),
 		)
-	}
-
-	oldAPIKey := credentials.APIKey
-	newAPIKey, err := service.RotateAPIKey(
-		context.Background(),
-		credentials.Project.ID,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if newAPIKey == oldAPIKey {
-		t.Fatal("API key rotation returned same key")
-	}
-
-	if _, err := service.LookupByAPIKey(
-		context.Background(),
-		oldAPIKey,
-	); err == nil {
-		t.Fatal("old API key still resolves after rotation")
-	}
-
-	if _, err := service.LookupByAPIKey(
-		context.Background(),
-		newAPIKey,
-	); err != nil {
-		t.Fatalf("new API key does not resolve: %v", err)
 	}
 
 	newCallbackSecret, err := service.RotateCallbackSecret(

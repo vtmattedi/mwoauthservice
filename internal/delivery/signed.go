@@ -63,11 +63,15 @@ func (e *DeliveryError) Error() string {
 }
 
 type successPayload struct {
-	Event           string       `json:"event"`
-	TransactionID   string       `json:"transaction_id"`
-	ClientReference string       `json:"client_reference"`
-	Provider        string       `json:"provider"`
-	Token           tokenPayload `json:"token"`
+	Event           string `json:"event"`
+	TransactionID   string `json:"transaction_id"`
+	ClientReference string `json:"client_reference"`
+	Provider        string `json:"provider"`
+	// CredentialRef identifies the per-project Google client that issued the
+	// token. The consumer stores it next to the refresh token and sends it
+	// back to refresh with the exact same client.
+	CredentialRef string       `json:"credential_ref"`
+	Token         tokenPayload `json:"token"`
 }
 
 type tokenPayload struct {
@@ -158,6 +162,7 @@ func (d *SignedDeliverer) Deliver(
 		TransactionID:   transaction.ID,
 		ClientReference: transaction.ClientReference,
 		Provider:        transaction.Provider,
+		CredentialRef:   transaction.GoogleCredentialID,
 		Token: tokenPayload{
 			AccessToken:  tokens.AccessToken,
 			RefreshToken: tokens.RefreshToken,

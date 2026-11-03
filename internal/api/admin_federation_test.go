@@ -77,7 +77,7 @@ func TestFederatedAdminRouteMappingsRejectInsufficientScope(t *testing.T) {
 	authenticator, _ := federation.NewAuthenticator(federation.ModeHybrid, "mw-oauth", apiIntrospectionStub{token: token})
 	router := NewRouter(Dependencies{Build: buildinfo.Current(), Admin: adminService, Projects: projectService, Federation: authenticator})
 
-	for _, target := range []string{"/admin/api/projects/1/rotate-key", "/admin/api/projects/1/rotate-callback-secret"} {
+	for _, target := range []string{"/admin/api/projects/1/rotate-callback-secret"} {
 		req := httptest.NewRequest(http.MethodPost, target, nil)
 		req.Header.Set("Authorization", "Bearer opaque")
 		res := httptest.NewRecorder()
@@ -110,6 +110,37 @@ func TestHybridLocalEndpointRejectsAuthorizationHeader(t *testing.T) {
 	router.ServeHTTP(res, req)
 	if res.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d want=401", res.Code)
+	}
+}
+
+// Projects have no long-lived API key any more: the route is gone and an
+// admin with every scope still gets 404, not a rotated key.
+func TestProjectAPIKeyRotationRouteIsGone(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "oauth.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	token := federation.Token{
+		Active: true, Subject: "usr_admin", Audience: []string{"mw-oauth"},
+		Scopes: []string{
+			federation.ScopeProjectsRead, federation.ScopeProjectsWrite,
+			federation.ScopeCredentialsRotate, federation.ScopeProjectsDelete,
+		},
+	}
+	authenticator, _ := federation.NewAuthenticator(federation.ModeHybrid, "mw-oauth", apiIntrospectionStub{token: token})
+	router := NewRouter(Dependencies{
+		Build: buildinfo.Current(), Admin: admin.NewService(store, admin.Options{}),
+		Projects: project.NewService(store, nil), Federation: authenticator,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/projects/1/rotate-key", nil)
+	req.Header.Set("Authorization", "Bearer opaque")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusNotFound && res.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d; the rotate-key route must not exist", res.Code)
 	}
 }
 
@@ -264,8 +295,7 @@ func createAPIProject(
 ) domain.Project {
 	t.Helper()
 	item, err := store.CreateProject(t.Context(), project.CreateRecord{
-		Name: name, Enabled: true, TokenHash: tokenHash,
-		CallbackSecretCiphertext: "ciphertext-" + tokenHash,
+		Name: name, Enabled: true, CallbackSecretCiphertext: "ciphertext-" + tokenHash,
 		CallbackSecretNonce:      "nonce-" + tokenHash,
 		CallbackSecretKeyVersion: 1,
 	})

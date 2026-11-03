@@ -122,8 +122,9 @@ func (s *Store) CreateOAuthTransaction(
             requested_scopes_json,
             status,
             expires_at_unix,
-            created_at_unix
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            created_at_unix,
+            google_credential_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''))`,
 		transaction.ID,
 		transaction.ProjectID,
 		transaction.Provider,
@@ -137,6 +138,7 @@ func (s *Store) CreateOAuthTransaction(
 		transaction.Status,
 		transaction.ExpiresAtUnix,
 		transaction.CreatedAtUnix,
+		transaction.GoogleCredentialID,
 	)
 	if err != nil {
 		rollback()

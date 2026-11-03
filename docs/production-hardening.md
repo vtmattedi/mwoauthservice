@@ -84,8 +84,7 @@ https://oauth.mattediworks.com/oauth/google/callback
 Required environment values include:
 
 ```env
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
+GOOGLE_CLIENT_SECRET_KEYS=1:<base64url-32-byte-key>
 GOOGLE_REDIRECT_URI=https://oauth.mattediworks.com/oauth/google/callback
 TOKEN_ENCRYPTION_KEY=
 CALLBACK_SECRET_KEYS=1:<base64url-32-byte-key>
@@ -107,15 +106,15 @@ GOOGLE_CLIENT_SECRET_ACTIVE_KEY_VERSION=1
 - Generate a key that is not reused anywhere else. The service refuses to
   start if this keyring shares key material with `CALLBACK_SECRET_KEYS`,
   `WEBAUTHN_CREDENTIAL_KEYS` or `TOKEN_ENCRYPTION_KEY`.
-- The keyring is optional. Without it only the legacy global Google client
-  (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`) works.
+- The keyring is required: every project uses its own Google OAuth client, and
+  there is no shared global client.
 - To rotate, add the new key as the next version, set it active, and keep every
   older version listed. Stored secrets stay readable by the version that
   encrypted them.
 - **Back up the SQLite database together with the complete keyring.** Losing a
   key version makes the credentials encrypted with it unrecoverable. Such a
-  credential is reported as broken; the service does not silently fall back to
-  the legacy global client.
+  credential is reported as broken and cannot authorize or refresh until it is
+  replaced; no other client is substituted.
 - Ciphertext is bound to its credential ID and project ID, so rows copied
   between credentials or projects fail to decrypt.
 

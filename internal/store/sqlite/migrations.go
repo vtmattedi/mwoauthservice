@@ -69,8 +69,38 @@ func migrationApplied(ctx context.Context, db *sql.DB, version string) (bool, er
 	return exists == 1, nil
 }
 
+// foreignKeysOffDirective, as the first line of a migration, runs it with
+// foreign key enforcement off. SQLite needs this to rebuild a table that other
+// tables reference (it cannot drop a UNIQUE column in place), because dropping
+// the old table would otherwise cascade into the referencing tables. The
+// pragma cannot be changed inside a transaction, so it is set around it, and
+// the migration only commits if no foreign key is violated afterwards.
+const foreignKeysOffDirective = "-- mw:foreign-keys=off"
+
 func applyMigration(ctx context.Context, db *sql.DB, version, sqlText string) error {
-	tx, err := db.BeginTx(ctx, nil)
+	// One dedicated connection, so connection-level pragmas apply to the
+	// whole migration.
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("open connection for migration %q: %w", version, err)
+	}
+	defer conn.Close()
+
+	foreignKeysOff := strings.HasPrefix(
+		strings.TrimSpace(sqlText),
+		foreignKeysOffDirective,
+	)
+	if foreignKeysOff {
+		if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+			return fmt.Errorf("disable foreign keys for migration %q: %w", version, err)
+		}
+		// Always restore enforcement, even when the migration fails.
+		defer func() {
+			_, _ = conn.ExecContext(context.Background(), "PRAGMA foreign_keys = ON")
+		}()
+	}
+
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin migration %q: %w", version, err)
 	}
@@ -78,6 +108,21 @@ func applyMigration(ctx context.Context, db *sql.DB, version, sqlText string) er
 	if _, err := tx.ExecContext(ctx, sqlText); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("execute migration %q: %w", version, err)
+	}
+
+	if foreignKeysOff {
+		violations, err := countForeignKeyViolations(ctx, tx)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("check foreign keys after migration %q: %w", version, err)
+		}
+		if violations > 0 {
+			_ = tx.Rollback()
+			return fmt.Errorf(
+				"migration %q would leave %d foreign key violations",
+				version, violations,
+			)
+		}
 	}
 
 	if _, err := tx.ExecContext(
@@ -94,4 +139,18 @@ func applyMigration(ctx context.Context, db *sql.DB, version, sqlText string) er
 		return fmt.Errorf("commit migration %q: %w", version, err)
 	}
 	return nil
+}
+
+func countForeignKeyViolations(ctx context.Context, tx *sql.Tx) (int, error) {
+	rows, err := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		count++
+	}
+	return count, rows.Err()
 }

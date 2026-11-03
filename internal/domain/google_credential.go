@@ -1,10 +1,5 @@
 package domain
 
-// LegacyGoogleCredentialRef is the explicit reference for the legacy global
-// Google client configured through GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET. It
-// is a virtual source: it has no row and no stored secret.
-const LegacyGoogleCredentialRef = "legacy"
-
 // GoogleCredentialIDPrefix is the prefix of every stored credential ID. The
 // ID is the opaque credential_ref handed to consumers.
 const GoogleCredentialIDPrefix = "gcred_"
@@ -45,7 +40,6 @@ type GoogleCredentialSource string
 
 const (
 	GoogleCredentialSourceProject GoogleCredentialSource = "project"
-	GoogleCredentialSourceLegacy  GoogleCredentialSource = "legacy"
 )
 
 // GoogleCredential is credential metadata only. It never carries the client

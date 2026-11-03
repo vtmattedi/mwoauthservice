@@ -149,13 +149,6 @@ func newAdminRouter(
 		)
 
 		mux.Handle(
-			"POST /admin/api/projects/{id}/rotate-key",
-			adminAuthorized(federatedAdmin, service, auditService, federation.ScopeCredentialsRotate, true,
-				AdminProjectRotateAPIKey(projects),
-			),
-		)
-
-		mux.Handle(
 			"POST /admin/api/projects/{id}/rotate-callback-secret",
 			adminAuthorized(federatedAdmin, service, auditService, federation.ScopeCredentialsRotate, true,
 				AdminProjectRotateCallbackSecret(projects),

@@ -1,122 +1,94 @@
 package api
 
 import (
-	"bytes"
-	"context"
-	"encoding/base64"
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
-	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/domain"
-	"github.com/vtmattedi/mw-oauth-service/internal/oauth"
-	"github.com/vtmattedi/mw-oauth-service/internal/project"
-	"github.com/vtmattedi/mw-oauth-service/internal/store/sqlite"
-	"github.com/vtmattedi/mw-oauth-service/internal/transactioncrypto"
 )
 
-func TestPublicGoogleAuthorizeRejectsInvalidAPIKeyAndAudits(t *testing.T) {
-	store, err := sqlite.Open(
-		filepath.Join(t.TempDir(), "oauth.db"),
-	)
+// The only credential the authorize endpoint accepts is a short-lived MW
+// access token. Everything else, including the old project API keys, is an
+// invalid token.
+func TestPublicGoogleAuthorizeRejectsEverythingButAnAccessToken(t *testing.T) {
+	f := newAuthzFixture(t, true)
+
+	cases := map[string]string{
+		"no credentials":      "",
+		"old-style project":   "mw_live_old-style-project-key",
+		"client secret":       f.client.ClientSecret,
+		"google access token": "ya29.not-an-mw-token",
+		"garbage":             "garbage",
+	}
+
+	for name, bearer := range cases {
+		res := f.authorize(t, bearer)
+		if res.Code != http.StatusUnauthorized || errorCode(t, res) != "invalid_token" {
+			t.Fatalf("%s: status = %d body=%s", name, res.Code, res.Body.String())
+		}
+		if !strings.Contains(res.Header().Get("WWW-Authenticate"), `error="invalid_token"`) {
+			t.Fatalf("%s: WWW-Authenticate = %q", name, res.Header().Get("WWW-Authenticate"))
+		}
+	}
+
+	// Each rejection is audited, without the credential.
+	page, err := f.audit.List(t.Context(), domain.AuditFilters{Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	rejected := 0
+	for _, event := range page.Items {
+		if event.EventType == "oauth.request.rejected.invalid_token" {
+			rejected++
+		}
+	}
+	if rejected != len(cases) {
+		t.Fatalf("audited rejections = %d; want %d", rejected, len(cases))
+	}
 
-	projectService := project.NewService(store, nil)
+	var transactions int
+	_ = f.store.DB().QueryRow(`SELECT COUNT(*) FROM oauth_transactions`).Scan(&transactions)
+	if transactions != 0 {
+		t.Fatalf("rejected requests created %d transactions", transactions)
+	}
+}
 
-	key := bytes.Repeat([]byte{0x22}, 32)
-	encoded := base64.RawURLEncoding.EncodeToString(key)
+func TestProjectReportsWhetherItHasApplicationCredentials(t *testing.T) {
+	f := newAuthzFixture(t, true)
+	ctx := t.Context()
 
-	transactionCipher, err := transactioncrypto.New(encoded)
+	withClient, err := f.projects.Get(ctx, f.project)
+	if err != nil || !withClient.AppCredentialsConfigured {
+		t.Fatalf("project with a client: %+v, %v", withClient, err)
+	}
+
+	bare, err := f.store.CreateProject(ctx, projectRecord("no-client"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	if bare.AppCredentialsConfigured {
+		t.Fatal("a new project has no application credentials yet")
+	}
 
-	oauthService, err := oauth.NewService(
-		store,
-		projectService,
-		transactionCipher,
-		oauth.Options{
-			GoogleClientID:    "client-id",
-			GoogleRedirectURI: "https://oauth.example.com/oauth/google/callback",
-		},
-	)
+	list, err := f.projects.List(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	auditService := audit.NewService(store)
-
-	handler := RequestID(
-		PublicGoogleAuthorize(
-			oauthService,
-			auditService,
-		),
-	)
-
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/v1/oauth/google/authorize",
-		bytes.NewReader([]byte(`{}`)),
-	)
-	req.Header.Set(
-		"Authorization",
-		"Bearer mw_live_invalid",
-	)
-	req.Header.Set("Content-Type", "application/json")
-
-	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, req)
-
-	if res.Code != http.StatusUnauthorized {
-		t.Fatalf(
-			"status = %d body=%s",
-			res.Code,
-			res.Body.String(),
-		)
+	flags := map[string]bool{}
+	for _, p := range list {
+		flags[p.Name] = p.AppCredentialsConfigured
 	}
+	if !flags["app"] || flags["no-client"] {
+		t.Fatalf("list flags = %v", flags)
+	}
+}
 
-	var response publicOAuthErrorResponse
-	if err := json.Unmarshal(
-		res.Body.Bytes(),
-		&response,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if response.Error.Code != "invalid_api_key" {
-		t.Fatalf(
-			"error code = %q",
-			response.Error.Code,
-		)
-	}
+func TestAuthorizeEndpointIsNotRegisteredWithoutAppAuth(t *testing.T) {
+	f := newAuthzFixture(t, false)
 
-	page, err := auditService.List(
-		context.Background(),
-		domain.AuditFilters{
-			Limit:  50,
-			Offset: 0,
-		},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if page.Pagination.Total != 1 {
-		t.Fatalf(
-			"audit total = %d; want 1",
-			page.Pagination.Total,
-		)
-	}
-	if page.Items[0].EventType !=
-		"oauth.request.rejected.invalid_api_key" {
-		t.Fatalf(
-			"event type = %q",
-			page.Items[0].EventType,
-		)
+	res := f.authorize(t, "mw_at_anything")
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("status = %d", res.Code)
 	}
 }

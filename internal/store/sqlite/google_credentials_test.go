@@ -29,7 +29,6 @@ func newCredentialStore(t *testing.T) (*Store, int64, int64) {
 		created, err := store.CreateProject(context.Background(), project.CreateRecord{
 			Name:                     fmt.Sprintf("app-%d", i),
 			Enabled:                  true,
-			TokenHash:                fmt.Sprintf("hash-%d", i),
 			CallbackSecretCiphertext: "ct",
 			CallbackSecretNonce:      "n",
 			CallbackSecretKeyVersion: 1,

@@ -15,6 +15,7 @@ import (
 	"github.com/vtmattedi/mw-oauth-service/internal/federation"
 	"github.com/vtmattedi/mw-oauth-service/internal/oauth"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
+	"github.com/vtmattedi/mw-oauth-service/internal/refresh"
 )
 
 type HealthStore interface {
@@ -31,6 +32,7 @@ type Dependencies struct {
 	OAuth         *oauth.Service
 	OAuthCallback *oauth.CallbackService
 	AppAuth       *appauth.Service
+	Refresh       *refresh.Service
 	// TokenLimits guards POST /v1/auth/token. The zero value means no
 	// limits; main supplies DefaultTokenLimits().
 	TokenLimits TokenLimits
@@ -66,13 +68,24 @@ func NewRouter(deps Dependencies) http.Handler {
 		)
 	}
 
-	if deps.OAuth != nil {
+	if deps.OAuth != nil && deps.AppAuth != nil {
 		mux.HandleFunc(
 			"POST /v1/oauth/google/authorize",
 			PublicGoogleAuthorize(
 				deps.OAuth,
 				deps.Audit,
-				WithAppAuth(deps.AppAuth),
+				deps.AppAuth,
+			),
+		)
+	}
+
+	if deps.AppAuth != nil && deps.Refresh != nil {
+		mux.HandleFunc(
+			"POST /v1/oauth/google/refresh",
+			GoogleRefresh(
+				deps.AppAuth,
+				deps.Refresh,
+				deps.Audit,
 			),
 		)
 	}

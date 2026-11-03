@@ -17,8 +17,11 @@ import (
 	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 	"github.com/vtmattedi/mw-oauth-service/internal/domain"
+	"github.com/vtmattedi/mw-oauth-service/internal/googlecred"
 	"github.com/vtmattedi/mw-oauth-service/internal/oauth"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
+	"github.com/vtmattedi/mw-oauth-service/internal/refresh"
+	"github.com/vtmattedi/mw-oauth-service/internal/secretbox"
 	"github.com/vtmattedi/mw-oauth-service/internal/store/sqlite"
 	"github.com/vtmattedi/mw-oauth-service/internal/transactioncrypto"
 )
@@ -53,9 +56,14 @@ type authzFixture struct {
 	audit    *audit.Service
 	clock    *authzClock
 	project  int64
-	legacy   string
 	client   appauth.CreatedClient
 	projects *project.Service
+	creds    *googlecred.Service
+	// credRef is the project's active per-project Google credential.
+	credRef string
+	// google records and scripts the provider refresh grant.
+	google  *fakeRefresher
+	refresh *refresh.Service
 }
 
 func newAuthzFixture(t *testing.T, wireAppAuth bool) authzFixture {
@@ -67,10 +75,8 @@ func newAuthzFixture(t *testing.T, wireAppAuth bool) authzFixture {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	legacyKey := "mw_live_legacy-test-key"
 	p, err := store.CreateProject(context.Background(), project.CreateRecord{
-		Name: "app", Enabled: true, TokenHash: project.HashAPIKey(legacyKey),
-		CallbackSecretCiphertext: "c", CallbackSecretNonce: "n", CallbackSecretKeyVersion: 1,
+		Name: "app", Enabled: true, CallbackSecretCiphertext: "c", CallbackSecretNonce: "n", CallbackSecretKeyVersion: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -91,9 +97,24 @@ func newAuthzFixture(t *testing.T, wireAppAuth bool) authzFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	keys, err := secretbox.NewGoogleCredentialKeyring(
+		"1:"+base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x33}, 32)), 1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials := googlecred.NewService(store, keys)
+	// The project's own Google client.
+	configured, err := credentials.Configure(
+		context.Background(), p.ID, "project-client.apps.googleusercontent.com", "GOCSPX-project-secret",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	oauthService, err := oauth.NewService(store, projects, cipher, oauth.Options{
-		GoogleClientID:    "client-id",
 		GoogleRedirectURI: "https://oauth.example.com/oauth/google/callback",
+		Credentials:       credentials,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -106,6 +127,16 @@ func newAuthzFixture(t *testing.T, wireAppAuth bool) authzFixture {
 		t.Fatal(err)
 	}
 
+	fakeGoogle := &fakeRefresher{}
+	refreshService, err := refresh.NewService(refresh.Options{
+		Credentials: credentials,
+		Projects:    projects,
+		Google:      fakeGoogle,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	auditService := audit.NewService(store)
 	deps := Dependencies{
 		Build: buildinfo.Current(),
@@ -114,12 +145,15 @@ func newAuthzFixture(t *testing.T, wireAppAuth bool) authzFixture {
 	}
 	if wireAppAuth {
 		deps.AppAuth = appAuthService
+		deps.Refresh = refreshService
 	}
 
 	return authzFixture{
 		handler: NewRouter(deps), store: store, appAuth: appAuthService,
-		audit: auditService, clock: clk, project: p.ID, legacy: legacyKey,
+		audit: auditService, clock: clk, project: p.ID,
 		client: client, projects: projects,
+		creds: credentials, credRef: configured.Credential.ID,
+		google: fakeGoogle, refresh: refreshService,
 	}
 }
 
@@ -192,7 +226,7 @@ func TestAuthorizeAcceptsScopedAppToken(t *testing.T) {
 	}
 
 	event := f.lastEvent(t, "oauth.request.accepted")
-	if event.Metadata["auth_method"] != "app_token" || event.Metadata["mw_client_id"] != f.client.Client.ClientID {
+	if event.Metadata["mw_client_id"] != f.client.Client.ClientID {
 		t.Fatalf("audit metadata = %v", event.Metadata)
 	}
 	raw, _ := json.Marshal(event)
@@ -290,138 +324,5 @@ func TestAuthorizeRevalidatesClientProjectAndScopeEveryRequest(t *testing.T) {
 	}
 	if res := f.authorize(t, tok); res.Code != http.StatusForbidden || errorCode(t, res) != "project_disabled" {
 		t.Fatalf("disabled project: %d %s", res.Code, res.Body.String())
-	}
-}
-
-func TestAuthorizeKeepsLegacyAPIKeyWorking(t *testing.T) {
-	f := newAuthzFixture(t, true)
-
-	res := f.authorize(t, f.legacy)
-	if res.Code != http.StatusOK {
-		t.Fatalf("legacy key: %d %s", res.Code, res.Body.String())
-	}
-	event := f.lastEvent(t, "oauth.request.accepted")
-	if event.Metadata["auth_method"] != "legacy_api_key" {
-		t.Fatalf("audit metadata = %v", event.Metadata)
-	}
-
-	// Wrong legacy keys still get the original error.
-	res = f.authorize(t, "mw_live_wrong")
-	if res.Code != http.StatusUnauthorized || errorCode(t, res) != "invalid_api_key" {
-		t.Fatalf("wrong legacy key: %d %s", res.Code, res.Body.String())
-	}
-	if res = f.authorize(t, ""); res.Code != http.StatusUnauthorized || errorCode(t, res) != "invalid_api_key" {
-		t.Fatalf("no credentials: %d %s", res.Code, res.Body.String())
-	}
-}
-
-func TestLegacyAPIKeyCanBeDisabledPerProjectWithoutAffectingAppTokens(t *testing.T) {
-	f := newAuthzFixture(t, true)
-	ctx := context.Background()
-
-	updated, err := f.projects.SetLegacyEnabled(ctx, f.project, false)
-	if err != nil || updated.LegacyEnabled {
-		t.Fatalf("disable legacy: %+v, %v", updated, err)
-	}
-
-	res := f.authorize(t, f.legacy)
-	if res.Code != http.StatusForbidden || errorCode(t, res) != "legacy_auth_disabled" {
-		t.Fatalf("legacy after disable: %d %s", res.Code, res.Body.String())
-	}
-	f.lastEvent(t, "oauth.request.rejected.legacy_disabled")
-
-	if res := f.authorize(t, f.token(t)); res.Code != http.StatusOK {
-		t.Fatalf("app token after legacy disable: %d %s", res.Code, res.Body.String())
-	}
-
-	if _, err := f.projects.SetLegacyEnabled(ctx, f.project, true); err != nil {
-		t.Fatal(err)
-	}
-	if res := f.authorize(t, f.legacy); res.Code != http.StatusOK {
-		t.Fatalf("legacy after re-enable: %d", res.Code)
-	}
-
-	if _, err := f.projects.SetLegacyEnabled(ctx, 9999, false); err == nil {
-		t.Fatal("unknown project should fail")
-	}
-}
-
-func TestAppTokensAreNotAcceptedWithoutAppAuthWiring(t *testing.T) {
-	f := newAuthzFixture(t, false)
-	tok := f.token(t)
-
-	res := f.authorize(t, tok)
-	if res.Code != http.StatusUnauthorized || errorCode(t, res) != "invalid_api_key" {
-		t.Fatalf("status = %d body=%s", res.Code, res.Body.String())
-	}
-}
-
-func TestLegacyAPIKeyIsNeverTreatedAsAppToken(t *testing.T) {
-	f := newAuthzFixture(t, true)
-
-	// A mw_live_ value must go through legacy lookup only, so it cannot be
-	// confused with a token even if someone stores a token hash as an API key.
-	res := f.authorize(t, "mw_live_"+strings.TrimPrefix(f.token(t), "mw_at_"))
-	if res.Code != http.StatusUnauthorized || errorCode(t, res) != "invalid_api_key" {
-		t.Fatalf("status = %d body=%s", res.Code, res.Body.String())
-	}
-}
-
-func TestProjectIntegrationModeFollowsCredentialsAndLegacyFlag(t *testing.T) {
-	store, err := sqlite.Open(filepath.Join(t.TempDir(), "oauth.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-
-	ctx := context.Background()
-	projects := project.NewService(store, nil)
-	p, err := store.CreateProject(ctx, project.CreateRecord{
-		Name: "p", Enabled: true, TokenHash: "h", CallbackSecretCiphertext: "c",
-		CallbackSecretNonce: "n", CallbackSecretKeyVersion: 1,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	mode := func() string {
-		t.Helper()
-		got, err := projects.Get(ctx, p.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return got.IntegrationMode
-	}
-
-	// Existing and new projects start in legacy mode: nothing breaks on upgrade.
-	if got := mode(); got != domain.IntegrationLegacy {
-		t.Fatalf("initial mode = %q", got)
-	}
-
-	svc := appauth.NewService(store, 0)
-	if _, err := svc.CreateClient(ctx, p.ID, "w", nil); err != nil {
-		t.Fatal(err)
-	}
-	if got := mode(); got != domain.IntegrationMigrating {
-		t.Fatalf("with client = %q", got)
-	}
-
-	if _, err := projects.SetLegacyEnabled(ctx, p.ID, false); err != nil {
-		t.Fatal(err)
-	}
-	if got := mode(); got != domain.IntegrationAppCredentials {
-		t.Fatalf("legacy off = %q", got)
-	}
-
-	if _, err := store.DB().Exec(`DELETE FROM mw_application_clients WHERE project_id = ?`, p.ID); err != nil {
-		t.Fatal(err)
-	}
-	if got := mode(); got != domain.IntegrationUnconfigured {
-		t.Fatalf("no client, legacy off = %q", got)
-	}
-
-	list, err := projects.List(ctx)
-	if err != nil || len(list) != 1 || list[0].IntegrationMode != domain.IntegrationUnconfigured {
-		t.Fatalf("list = %+v, %v", list, err)
 	}
 }

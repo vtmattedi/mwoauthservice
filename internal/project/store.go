@@ -17,7 +17,6 @@ var (
 type CreateRecord struct {
 	Name                     string
 	Enabled                  bool
-	TokenHash                string
 	CallbackSecretCiphertext string
 	CallbackSecretNonce      string
 	CallbackSecretKeyVersion int
@@ -38,11 +37,6 @@ type Store interface {
 		id int64,
 	) (domain.Project, error)
 
-	GetProjectByTokenHash(
-		ctx context.Context,
-		tokenHash string,
-	) (domain.Project, error)
-
 	UpdateProject(
 		ctx context.Context,
 		id int64,
@@ -55,18 +49,6 @@ type Store interface {
 		id int64,
 		event domain.AuditEvent,
 	) (domain.Project, error)
-
-	SetProjectLegacyEnabled(
-		ctx context.Context,
-		id int64,
-		enabled bool,
-	) (domain.Project, error)
-
-	UpdateProjectTokenHash(
-		ctx context.Context,
-		id int64,
-		tokenHash string,
-	) error
 
 	UpdateProjectCallbackSecret(
 		ctx context.Context,

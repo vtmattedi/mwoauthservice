@@ -30,7 +30,6 @@ func TestAuthorizeGoogleCreatesProtectedTransaction(t *testing.T) {
 		project.CreateRecord{
 			Name:                     "OAuth Test",
 			Enabled:                  true,
-			TokenHash:                project.HashAPIKey("mw_live_test"),
 			CallbackSecretCiphertext: "cipher",
 			CallbackSecretNonce:      "nonce",
 			CallbackSecretKeyVersion: 1,
@@ -66,6 +65,7 @@ func TestAuthorizeGoogleCreatesProtectedTransaction(t *testing.T) {
 	}
 
 	projectService := project.NewService(store, nil)
+	creds, _ := realCredentials(t, store, projectRow.ID)
 
 	key := bytes.Repeat([]byte{0x55}, 32)
 	encoded := base64.RawURLEncoding.EncodeToString(key)
@@ -79,7 +79,7 @@ func TestAuthorizeGoogleCreatesProtectedTransaction(t *testing.T) {
 		projectService,
 		transactionCipher,
 		oauth.Options{
-			GoogleClientID:    "google-client-id",
+			Credentials:       creds,
 			GoogleRedirectURI: "https://oauth.example.com/oauth/google/callback",
 		},
 	)
@@ -87,13 +87,7 @@ func TestAuthorizeGoogleCreatesProtectedTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	authenticated, err := service.AuthenticateProject(
-		context.Background(),
-		"mw_live_test",
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	authenticated := domain.Project{ID: projectRow.ID}
 
 	result, err := service.AuthorizeGoogle(
 		context.Background(),
@@ -261,7 +255,6 @@ func newRateLimitTestService(
 		project.CreateRecord{
 			Name:                     "Rate Limit Test",
 			Enabled:                  true,
-			TokenHash:                project.HashAPIKey("mw_live_rate"),
 			CallbackSecretCiphertext: "cipher",
 			CallbackSecretNonce:      "nonce",
 			CallbackSecretKeyVersion: 1,
@@ -295,6 +288,7 @@ func newRateLimitTestService(
 	}
 
 	projectService := project.NewService(store, nil)
+	creds, _ := realCredentials(t, store, projectRow.ID)
 
 	key := bytes.Repeat([]byte{0x77}, 32)
 	encoded := base64.RawURLEncoding.EncodeToString(key)
@@ -309,7 +303,7 @@ func newRateLimitTestService(
 		projectService,
 		transactionCipher,
 		oauth.Options{
-			GoogleClientID:    "client-id",
+			Credentials:       creds,
 			GoogleRedirectURI: "https://oauth.example.com/oauth/google/callback",
 		},
 	)
@@ -317,13 +311,7 @@ func newRateLimitTestService(
 		t.Fatal(err)
 	}
 
-	authenticated, err := service.AuthenticateProject(
-		context.Background(),
-		"mw_live_rate",
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	authenticated := domain.Project{ID: projectRow.ID}
 
 	return store, service, authenticated
 }

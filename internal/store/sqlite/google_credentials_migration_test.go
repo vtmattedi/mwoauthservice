@@ -60,10 +60,7 @@ func seedV1Database(t *testing.T, db *sql.DB) {
 	t.Helper()
 
 	stmts := []string{
-		`INSERT INTO projects(id, name, token_hash, callback_secret_ciphertext,
-			callback_secret_nonce, callback_secret_key_version)
-		 VALUES (1, 'legacy-app', 'hash1', 'ct', 'nonce', 1),
-		        (2, 'other-app', 'hash2', 'ct', 'nonce', 1)`,
+		insertTestProjects(t, db, 1, "legacy-app", 2, "other-app"),
 		`INSERT INTO oauth_transactions(id, project_id, provider, state_hash,
 			pkce_verifier_ciphertext, pkce_verifier_nonce, client_reference,
 			callback_url, return_url, requested_scopes_json, status,

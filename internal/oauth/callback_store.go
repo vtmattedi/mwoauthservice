@@ -28,9 +28,12 @@ type PKCEDecrypter interface {
 	) ([]byte, error)
 }
 
+// GoogleCodeExchanger trades an authorization code for tokens using the Google
+// client the authorization was started with.
 type GoogleCodeExchanger interface {
 	ExchangeCode(
 		ctx context.Context,
+		client GoogleClient,
 		code string,
 		verifier string,
 	) (TokenSet, error)

@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"github.com/vtmattedi/mw-oauth-service/internal/domain"
+	"github.com/vtmattedi/mw-oauth-service/internal/googlecred"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
 )
 
@@ -37,13 +38,15 @@ type Service struct {
 	store             TransactionStore
 	projects          *project.Service
 	cipher            PKCECipher
-	googleClientID    string
+	credentials       CredentialSource
 	googleRedirectURI string
 }
 
 type Options struct {
-	GoogleClientID    string
 	GoogleRedirectURI string
+	// Credentials resolves each project's own Google OAuth client. Required:
+	// there is no shared global client.
+	Credentials CredentialSource
 }
 
 type GoogleAuthorizationRequest struct {
@@ -66,9 +69,8 @@ func NewService(
 	cipher PKCECipher,
 	options Options,
 ) (*Service, error) {
-	clientID := strings.TrimSpace(options.GoogleClientID)
-	if clientID == "" {
-		return nil, fmt.Errorf("GOOGLE_CLIENT_ID is required")
+	if options.Credentials == nil {
+		return nil, fmt.Errorf("Google credential source is required")
 	}
 
 	redirectURI := strings.TrimSpace(options.GoogleRedirectURI)
@@ -99,39 +101,9 @@ func NewService(
 		store:             store,
 		projects:          projects,
 		cipher:            cipher,
-		googleClientID:    clientID,
+		credentials:       options.Credentials,
 		googleRedirectURI: redirectURI,
 	}, nil
-}
-
-func (s *Service) AuthenticateProject(
-	ctx context.Context,
-	rawAPIKey string,
-) (domain.Project, error) {
-	rawAPIKey = strings.TrimSpace(rawAPIKey)
-	if rawAPIKey == "" {
-		return domain.Project{}, ErrInvalidAPIKey
-	}
-
-	found, err := s.projects.LookupByAPIKey(
-		ctx,
-		rawAPIKey,
-	)
-	if err != nil {
-		if errors.Is(err, project.ErrNotFound) {
-			return domain.Project{}, ErrInvalidAPIKey
-		}
-		return domain.Project{}, fmt.Errorf(
-			"authenticate project: %w",
-			err,
-		)
-	}
-
-	if !found.Enabled {
-		return found, ErrDisabledProject
-	}
-
-	return found, nil
 }
 
 func (s *Service) AuthorizeGoogle(
@@ -165,6 +137,13 @@ func (s *Service) AuthorizeGoogle(
 		request,
 		config,
 	)
+	if err != nil {
+		return AuthorizationResult{}, err
+	}
+
+	// Choose the Google client now and pin it on the transaction. The callback
+	// uses the pinned client, never whichever is active later.
+	choice, err := s.selectGoogleClient(ctx, authenticatedProject.ID)
 	if err != nil {
 		return AuthorizationResult{}, err
 	}
@@ -219,6 +198,7 @@ func (s *Service) AuthorizeGoogle(
 		CallbackURL:            normalized.CallbackURL,
 		ReturnURL:              normalized.ReturnURL,
 		RequestedScopesJSON:    string(requestedScopesJSON),
+		GoogleCredentialID:     choice.CredentialID,
 		Status:                 "pending",
 		ExpiresAtUnix:          expiresAt.Unix(),
 		CreatedAtUnix:          now.Unix(),
@@ -234,6 +214,7 @@ func (s *Service) AuthorizeGoogle(
 	}
 
 	authorizationURL, err := s.googleAuthorizationURL(
+		choice.ClientID,
 		state,
 		verifier,
 		normalized.Scopes,
@@ -250,7 +231,56 @@ func (s *Service) AuthorizeGoogle(
 	}, nil
 }
 
+// googleClientChoice is the Google client picked for one authorization.
+type googleClientChoice struct {
+	ClientID     string
+	CredentialID string
+}
+
+// selectGoogleClient returns the project's active Google client. A project
+// with no active credential has no way to authorize, and a credential that
+// exists but cannot be used (missing key, undecryptable) is an error: there is
+// no other client to fall back to.
+func (s *Service) selectGoogleClient(
+	ctx context.Context,
+	projectID int64,
+) (googleClientChoice, error) {
+	resolved, err := s.credentials.ResolveActive(ctx, projectID)
+	switch {
+	case err == nil:
+		return googleClientChoice{
+			ClientID:     resolved.ClientID,
+			CredentialID: resolved.Ref,
+		}, nil
+
+	case errors.Is(err, googlecred.ErrNotFound):
+		return googleClientChoice{}, ErrNoGoogleClient
+
+	case isPermanentCredentialError(err):
+		return googleClientChoice{}, fmt.Errorf(
+			"%w: %v", ErrGoogleClientUnavailable, err,
+		)
+
+	default:
+		// A store failure is not the project's fault; report it as an
+		// internal error so the caller can retry.
+		return googleClientChoice{}, fmt.Errorf(
+			"resolve project Google client: %w", err,
+		)
+	}
+}
+
+// isPermanentCredentialError reports whether err says the credential itself
+// is unusable (as opposed to a transient failure reading it).
+func isPermanentCredentialError(err error) bool {
+	return errors.Is(err, googlecred.ErrNotFound) ||
+		errors.Is(err, googlecred.ErrSecretUnavailable) ||
+		errors.Is(err, googlecred.ErrBroken) ||
+		errors.Is(err, googlecred.ErrNotConfigured)
+}
+
 func (s *Service) googleAuthorizationURL(
+	clientID string,
 	state string,
 	verifier string,
 	scopes []string,
@@ -267,7 +297,7 @@ func (s *Service) googleAuthorizationURL(
 	)
 
 	query := endpoint.Query()
-	query.Set("client_id", s.googleClientID)
+	query.Set("client_id", clientID)
 	query.Set("redirect_uri", s.googleRedirectURI)
 	query.Set("response_type", "code")
 	query.Set("scope", strings.Join(scopes, " "))

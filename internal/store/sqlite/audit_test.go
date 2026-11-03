@@ -120,7 +120,6 @@ func testProjectRecord(name string) project.CreateRecord {
 	return project.CreateRecord{
 		Name:                     name,
 		Enabled:                  true,
-		TokenHash:                "hash-" + name,
 		CallbackSecretCiphertext: "ciphertext",
 		CallbackSecretNonce:      "nonce",
 		CallbackSecretKeyVersion: 1,

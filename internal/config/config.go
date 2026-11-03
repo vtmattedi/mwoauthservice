@@ -32,8 +32,6 @@ type Config struct {
 	AppAccessTokenTTL                  time.Duration
 	GoogleClientSecretKeys             string
 	GoogleClientSecretActiveKeyVersion int
-	GoogleClientID                     string
-	GoogleClientSecret                 string
 	GoogleRedirectURI                  string
 	TokenEncryptionKey                 string
 	AdminAuthMode                      federation.Mode
@@ -192,14 +190,6 @@ func Load() (Config, error) {
 		}
 		cfg.GoogleClientSecretActiveKeyVersion = version
 	}
-
-	cfg.GoogleClientID = strings.TrimSpace(
-		os.Getenv("GOOGLE_CLIENT_ID"),
-	)
-
-	cfg.GoogleClientSecret = strings.TrimSpace(
-		os.Getenv("GOOGLE_CLIENT_SECRET"),
-	)
 
 	cfg.GoogleRedirectURI = strings.TrimSpace(
 		os.Getenv("GOOGLE_REDIRECT_URI"),

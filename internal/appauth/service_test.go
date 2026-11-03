@@ -54,8 +54,8 @@ func newFixture(t *testing.T) fixture {
 	for i := range ids {
 		p, err := store.CreateProject(context.Background(), project.CreateRecord{
 			Name: fmt.Sprintf("app-%d", i), Enabled: true,
-			TokenHash: fmt.Sprintf("hash-%d", i), CallbackSecretCiphertext: "c",
-			CallbackSecretNonce: "n", CallbackSecretKeyVersion: 1,
+			CallbackSecretCiphertext: "c",
+			CallbackSecretNonce:      "n", CallbackSecretKeyVersion: 1,
 		})
 		if err != nil {
 			t.Fatal(err)

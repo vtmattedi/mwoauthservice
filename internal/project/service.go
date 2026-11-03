@@ -3,9 +3,7 @@ package project
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"net"
 	"net/url"
@@ -17,7 +15,6 @@ import (
 )
 
 const (
-	apiKeyPrefix          = "mw_live_"
 	callbackSecretPrefix  = "mw_whsec_"
 	credentialRandomBytes = 32
 
@@ -38,7 +35,6 @@ type Service struct {
 
 type Credentials struct {
 	Project        domain.Project
-	APIKey         string
 	CallbackSecret string
 }
 
@@ -80,11 +76,6 @@ func (s *Service) Create(
 		return Credentials{}, err
 	}
 
-	apiKey, err := randomCredential(apiKeyPrefix)
-	if err != nil {
-		return Credentials{}, err
-	}
-
 	callbackSecret, err := randomCredential(callbackSecretPrefix)
 	if err != nil {
 		return Credentials{}, err
@@ -105,7 +96,6 @@ func (s *Service) Create(
 		CreateRecord{
 			Name:                     name,
 			Enabled:                  enabled,
-			TokenHash:                HashAPIKey(apiKey),
 			CallbackSecretCiphertext: ciphertext,
 			CallbackSecretNonce:      nonce,
 			CallbackSecretKeyVersion: keyVersion,
@@ -117,7 +107,6 @@ func (s *Service) Create(
 
 	return Credentials{
 		Project:        created,
-		APIKey:         apiKey,
 		CallbackSecret: callbackSecret,
 	}, nil
 }
@@ -190,43 +179,6 @@ func (s *Service) Delete(
 	return s.store.DeleteProject(ctx, id, normalized)
 }
 
-// SetLegacyEnabled switches the project's legacy mw_live_ integration on or
-// off. Turn it off only after the consumer has moved to MW client credentials.
-func (s *Service) SetLegacyEnabled(
-	ctx context.Context,
-	id int64,
-	enabled bool,
-) (domain.Project, error) {
-	if id <= 0 {
-		return domain.Project{}, ErrNotFound
-	}
-	return s.store.SetProjectLegacyEnabled(ctx, id, enabled)
-}
-
-func (s *Service) RotateAPIKey(
-	ctx context.Context,
-	id int64,
-) (string, error) {
-	if _, err := s.Get(ctx, id); err != nil {
-		return "", err
-	}
-
-	apiKey, err := randomCredential(apiKeyPrefix)
-	if err != nil {
-		return "", err
-	}
-
-	if err := s.store.UpdateProjectTokenHash(
-		ctx,
-		id,
-		HashAPIKey(apiKey),
-	); err != nil {
-		return "", err
-	}
-
-	return apiKey, nil
-}
-
 func (s *Service) RotateCallbackSecret(
 	ctx context.Context,
 	id int64,
@@ -261,26 +213,6 @@ func (s *Service) RotateCallbackSecret(
 	}
 
 	return secret, nil
-}
-
-func (s *Service) LookupByAPIKey(
-	ctx context.Context,
-	rawAPIKey string,
-) (domain.Project, error) {
-	rawAPIKey = strings.TrimSpace(rawAPIKey)
-	if !strings.HasPrefix(rawAPIKey, apiKeyPrefix) {
-		return domain.Project{}, ErrNotFound
-	}
-
-	return s.store.GetProjectByTokenHash(
-		ctx,
-		HashAPIKey(rawAPIKey),
-	)
-}
-
-func HashAPIKey(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:])
 }
 
 func (s *Service) GoogleConfig(

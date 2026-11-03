@@ -10,11 +10,44 @@ import (
 	"time"
 
 	"github.com/vtmattedi/mw-oauth-service/internal/domain"
+	"github.com/vtmattedi/mw-oauth-service/internal/googlecred"
 	"github.com/vtmattedi/mw-oauth-service/internal/oauth"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
+	"github.com/vtmattedi/mw-oauth-service/internal/secretbox"
 	"github.com/vtmattedi/mw-oauth-service/internal/store/sqlite"
 	"github.com/vtmattedi/mw-oauth-service/internal/transactioncrypto"
 )
+
+// realCredentials gives the project a real, encrypted Google client and
+// returns the service together with the credential's reference.
+func realCredentials(
+	t *testing.T,
+	store *sqlite.Store,
+	projectID int64,
+) (*googlecred.Service, string) {
+	t.Helper()
+
+	keys, err := secretbox.NewGoogleCredentialKeyring(
+		"1:"+base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x77}, 32)),
+		1,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	service := googlecred.NewService(store, keys)
+	configured, err := service.Configure(
+		context.Background(),
+		projectID,
+		"test-client.apps.googleusercontent.com",
+		"GOCSPX-test-secret-value",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return service, configured.Credential.ID
+}
 
 type fakeGoogleExchanger struct {
 	tokens oauth.TokenSet
@@ -23,6 +56,7 @@ type fakeGoogleExchanger struct {
 
 func (f fakeGoogleExchanger) ExchangeCode(
 	ctx context.Context,
+	client oauth.GoogleClient,
 	code string,
 	verifier string,
 ) (oauth.TokenSet, error) {
@@ -77,7 +111,6 @@ func TestGoogleCallbackCompletesWithSuccessfulDeliverer(t *testing.T) {
 		project.CreateRecord{
 			Name:                     "Callback Service Test",
 			Enabled:                  true,
-			TokenHash:                "hash",
 			CallbackSecretCiphertext: "cipher",
 			CallbackSecretNonce:      "nonce",
 			CallbackSecretKeyVersion: 1,
@@ -86,6 +119,8 @@ func TestGoogleCallbackCompletesWithSuccessfulDeliverer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	creds, credentialRef := realCredentials(t, store, projectRow.ID)
 
 	key := bytes.Repeat([]byte{0x64}, 32)
 	encoded := base64.RawURLEncoding.EncodeToString(key)
@@ -109,6 +144,7 @@ func TestGoogleCallbackCompletesWithSuccessfulDeliverer(t *testing.T) {
 	now := time.Now().UTC().Unix()
 
 	transaction := domain.OAuthTransaction{
+		GoogleCredentialID:     credentialRef,
 		ID:                     "oauth_txn_callback",
 		ProjectID:              projectRow.ID,
 		Provider:               "google",
@@ -152,6 +188,7 @@ func TestGoogleCallbackCompletesWithSuccessfulDeliverer(t *testing.T) {
 			},
 		},
 		deliverer,
+		oauth.WithCredentials(creds),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -208,7 +245,6 @@ func TestUnavailableDelivererMarksDeliveryFailed(t *testing.T) {
 		project.CreateRecord{
 			Name:                     "Delivery Failure Test",
 			Enabled:                  true,
-			TokenHash:                "hash-2",
 			CallbackSecretCiphertext: "cipher",
 			CallbackSecretNonce:      "nonce",
 			CallbackSecretKeyVersion: 1,
@@ -217,6 +253,8 @@ func TestUnavailableDelivererMarksDeliveryFailed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	creds, credentialRef := realCredentials(t, store, projectRow.ID)
 
 	key := bytes.Repeat([]byte{0x65}, 32)
 	encoded := base64.RawURLEncoding.EncodeToString(key)
@@ -240,6 +278,7 @@ func TestUnavailableDelivererMarksDeliveryFailed(t *testing.T) {
 	now := time.Now().UTC().Unix()
 
 	transaction := domain.OAuthTransaction{
+		GoogleCredentialID:     credentialRef,
 		ID:                     "oauth_txn_delivery_failure",
 		ProjectID:              projectRow.ID,
 		Provider:               "google",
@@ -277,6 +316,7 @@ func TestUnavailableDelivererMarksDeliveryFailed(t *testing.T) {
 			},
 		},
 		oauth.UnavailableDeliverer{},
+		oauth.WithCredentials(creds),
 	)
 	if err != nil {
 		t.Fatal(err)

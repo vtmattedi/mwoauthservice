@@ -259,12 +259,6 @@ func (s *Service) Resolve(
 	ref string,
 	purpose Purpose,
 ) (Resolved, error) {
-	if ref == domain.LegacyGoogleCredentialRef {
-		// The legacy global client is a virtual source resolved by the OAuth
-		// layer, never by this per-project store.
-		return Resolved{}, ErrNotFound
-	}
-
 	record, err := s.store.GetCredentialSecret(ctx, projectID, ref)
 	if err != nil {
 		return Resolved{}, err

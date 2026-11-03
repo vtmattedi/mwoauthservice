@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"database/sql"
 	"io/fs"
 	"strings"
@@ -38,9 +37,7 @@ func migrationsBeforeName(t *testing.T, name string) fs.FS {
 func seedAppAuth(t *testing.T, db *sql.DB) {
 	t.Helper()
 	stmts := []string{
-		`INSERT INTO projects(id, name, token_hash, callback_secret_ciphertext,
-			callback_secret_nonce, callback_secret_key_version)
-		 VALUES (1, 'app-1', 'h1', 'c', 'n', 1), (2, 'app-2', 'h2', 'c', 'n', 1)`,
+		insertTestProjects(t, db, 1, "app-1", 2, "app-2"),
 		`INSERT INTO mw_application_clients(id, project_id, client_id, allowed_scopes)
 		 VALUES (1, 1, 'mwc_one', 'google.authorize google.refresh')`,
 		`INSERT INTO mw_application_client_secrets(id, client_pk, secret_hash)
@@ -50,91 +47,6 @@ func seedAppAuth(t *testing.T, db *sql.DB) {
 		if _, err := db.Exec(s); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
-	}
-}
-
-func TestApplicationAuthMigrationIsAdditive(t *testing.T) {
-	db := openRawDB(t)
-	ctx := context.Background()
-
-	if err := ApplyMigrations(ctx, db, migrationsBeforeName(t, applicationAuthMigration)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(
-		`INSERT INTO projects(id, name, token_hash, callback_secret_ciphertext,
-			callback_secret_nonce, callback_secret_key_version)
-		 VALUES (1, 'legacy', 'legacy-hash', 'c', 'n', 1)`,
-	); err != nil {
-		t.Fatal(err)
-	}
-
-	applyAll(t, db)
-
-	// The legacy API key hash is untouched.
-	var hash string
-	if err := db.QueryRow(`SELECT token_hash FROM projects WHERE id = 1`).Scan(&hash); err != nil || hash != "legacy-hash" {
-		t.Fatalf("legacy token hash = %q, %v", hash, err)
-	}
-
-	for _, table := range []string{
-		"mw_application_clients", "mw_application_client_secrets", "mw_application_access_tokens",
-	} {
-		var n int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&n); err != nil || n != 0 {
-			t.Fatalf("%s: count=%d err=%v", table, n, err)
-		}
-	}
-
-	applyAll(t, db) // idempotent
-}
-
-func TestLegacyModeMigrationKeepsExistingProjectsLegacyEnabled(t *testing.T) {
-	db := openRawDB(t)
-	ctx := context.Background()
-
-	if err := ApplyMigrations(ctx, db, migrationsBeforeName(t, "012_project_legacy_mode.sql")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(
-		`INSERT INTO projects(id, name, token_hash, callback_secret_ciphertext,
-			callback_secret_nonce, callback_secret_key_version, enabled)
-		 VALUES (1, 'existing-a', 'ha', 'c', 'n', 1, 1), (2, 'existing-b', 'hb', 'c', 'n', 1, 0)`,
-	); err != nil {
-		t.Fatal(err)
-	}
-
-	applyAll(t, db)
-
-	rows, err := db.Query(`SELECT id, enabled, legacy_enabled, token_hash FROM projects ORDER BY id`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-
-	seen := 0
-	for rows.Next() {
-		var id, enabled, legacy int
-		var hash string
-		if err := rows.Scan(&id, &enabled, &legacy, &hash); err != nil {
-			t.Fatal(err)
-		}
-		if legacy != 1 {
-			t.Fatalf("project %d legacy_enabled = %d; upgrade must not change behavior", id, legacy)
-		}
-		if (id == 1 && enabled != 1) || (id == 2 && enabled != 0) || (id == 1 && hash != "ha") {
-			t.Fatalf("project %d changed: enabled=%d hash=%s", id, enabled, hash)
-		}
-		seen++
-	}
-	if seen != 2 {
-		t.Fatalf("seen %d projects", seen)
-	}
-
-	if _, err := db.Exec(`UPDATE projects SET legacy_enabled = 2 WHERE id = 1`); err == nil {
-		t.Fatal("legacy_enabled must be 0 or 1")
-	}
-	if _, err := db.Exec(`UPDATE projects SET legacy_enabled = 0 WHERE id = 1`); err != nil {
-		t.Fatalf("turning legacy off: %v", err)
 	}
 }
 

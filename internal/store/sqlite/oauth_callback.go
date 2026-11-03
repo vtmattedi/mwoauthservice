@@ -45,7 +45,8 @@ func (s *Store) ConsumeOAuthTransactionByStateHash(
                 expires_at_unix,
                 consumed_at_unix,
                 created_at,
-                created_at_unix
+                created_at_unix,
+                COALESCE(google_credential_id, '')
              FROM oauth_transactions
              WHERE state_hash = ?
              LIMIT 1`,
@@ -227,6 +228,7 @@ func scanOAuthTransaction(
 		&consumedAt,
 		&transaction.CreatedAt,
 		&transaction.CreatedAtUnix,
+		&transaction.GoogleCredentialID,
 	)
 	if err != nil {
 		return domain.OAuthTransaction{}, err

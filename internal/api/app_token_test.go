@@ -41,7 +41,7 @@ func newTokenFixture(t *testing.T, limits TokenLimits) tokenFixture {
 	t.Cleanup(func() { _ = store.Close() })
 
 	p, err := store.CreateProject(context.Background(), project.CreateRecord{
-		Name: "app", Enabled: true, TokenHash: "h", CallbackSecretCiphertext: "c",
+		Name: "app", Enabled: true, CallbackSecretCiphertext: "c",
 		CallbackSecretNonce: "n", CallbackSecretKeyVersion: 1,
 	})
 	if err != nil {
@@ -349,7 +349,7 @@ func TestTokenEndpointRateLimitsPerClient(t *testing.T) {
 func (f tokenFixture) projectOther(t *testing.T) int64 {
 	t.Helper()
 	p, err := f.store.CreateProject(context.Background(), project.CreateRecord{
-		Name: "other", Enabled: true, TokenHash: "h2", CallbackSecretCiphertext: "c",
+		Name: "other", Enabled: true, CallbackSecretCiphertext: "c",
 		CallbackSecretNonce: "n", CallbackSecretKeyVersion: 1,
 	})
 	if err != nil {

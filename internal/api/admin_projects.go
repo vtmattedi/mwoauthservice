@@ -93,7 +93,6 @@ func AdminProjectCreate(
 			http.StatusCreated,
 			adminProjectCredentialsResponse{
 				Project:        result.Project,
-				APIKey:         result.APIKey,
 				CallbackSecret: result.CallbackSecret,
 			},
 		)
@@ -170,34 +169,6 @@ func AdminProjectDelete(
 		}
 
 		w.WriteHeader(http.StatusNoContent)
-	}
-}
-
-func AdminProjectRotateAPIKey(
-	service *project.Service,
-) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id, ok := adminProjectID(w, r)
-		if !ok {
-			return
-		}
-
-		apiKey, err := service.RotateAPIKey(
-			r.Context(),
-			id,
-		)
-		if err != nil {
-			writeProjectError(w, err)
-			return
-		}
-
-		writeJSON(
-			w,
-			http.StatusOK,
-			adminAPIKeyResponse{
-				APIKey: apiKey,
-			},
-		)
 	}
 }
 

@@ -70,21 +70,19 @@ func TestCredentialsNeverAppearInLogsOrAudit(t *testing.T) {
 
 	tokenFixtureRequest(t, f, clientID, wrongSecret) // rejected
 
-	// Authorize with a good token, a bad token, a refresh-only token and the
-	// legacy key.
+	// Authorize with a good token, a bad token, a refresh-only token and an
+	// old-style project key, which is not a credential any more.
 	f.authorize(t, issued)
 	f.authorize(t, "mw_at_bad-token-value")
 	f.authorize(t, f.token(t, "google.refresh"))
-	f.authorize(t, f.legacy)
-	f.authorize(t, "mw_live_wrong-legacy-key")
+	f.authorize(t, "mw_live_old-style-project-key")
 
 	secrets := map[string]string{
 		"client secret":  secret,
 		"wrong secret":   wrongSecret,
 		"issued token":   issued,
 		"bad token":      "bad-token-value",
-		"legacy key":     f.legacy,
-		"wrong legacy":   "wrong-legacy-key",
+		"old-style key":  "old-style-project-key",
 		"basic header":   basic(clientID, secret)[len("Basic "):],
 		"basic (wrong)":  basic(clientID, wrongSecret)[len("Basic "):],
 		"bearer literal": "Bearer " + issued,

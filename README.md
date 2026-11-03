@@ -46,7 +46,8 @@ On PowerShell, use `Copy-Item .env.example .env`. The example is a configuration
 | `APP_ENV=development` | Enables local `.env` loading; an explicit production/staging environment does not load it |
 | `PORT=8080` | Port used by the example environment for direct Go execution |
 | `DATABASE_PATH=./data/oauth.db` | Local SQLite database |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Your Google OAuth application credentials; required at startup |
+| `GOOGLE_CLIENT_SECRET_KEYS` | Versioned 32-byte base64url keyring that encrypts each project's own Google OAuth client secret, e.g. `1:<generated-key>`; required, and must not reuse any other key |
+| `GOOGLE_CLIENT_SECRET_ACTIVE_KEY_VERSION=1` | Version used for newly stored Google client secrets |
 | `GOOGLE_REDIRECT_URI` | Exact callback URI registered with Google, ending in `/oauth/google/callback` |
 | `TOKEN_ENCRYPTION_KEY` | An independently generated 32-byte base64url key for short-lived transaction material |
 | `CALLBACK_SECRET_KEYS` | Versioned 32-byte base64url keyring, e.g. `1:<generated-key>` |

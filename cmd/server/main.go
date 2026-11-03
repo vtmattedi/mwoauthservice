@@ -21,9 +21,11 @@ import (
 	"github.com/vtmattedi/mw-oauth-service/internal/delivery"
 	"github.com/vtmattedi/mw-oauth-service/internal/envfile"
 	"github.com/vtmattedi/mw-oauth-service/internal/federation"
+	"github.com/vtmattedi/mw-oauth-service/internal/googlecred"
 	"github.com/vtmattedi/mw-oauth-service/internal/oauth"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
 	"github.com/vtmattedi/mw-oauth-service/internal/providers/google"
+	"github.com/vtmattedi/mw-oauth-service/internal/refresh"
 	"github.com/vtmattedi/mw-oauth-service/internal/secretbox"
 	"github.com/vtmattedi/mw-oauth-service/internal/store/sqlite"
 	"github.com/vtmattedi/mw-oauth-service/internal/transactioncrypto"
@@ -88,40 +90,39 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Per-project Google client secrets use their own keyring. It is optional:
-	// without it only the legacy global Google client is available, and the
-	// service never falls back silently if a stored credential cannot be
-	// decrypted.
-	var googleCredentialKeys *secretbox.GoogleCredentialKeyring
-	if cfg.GoogleClientSecretKeys != "" {
-		for name, other := range map[string]string{
-			"CALLBACK_SECRET_KEYS":     cfg.CallbackSecretKeys,
-			"WEBAUTHN_CREDENTIAL_KEYS": cfg.WebAuthnCredentialKeys,
-			"TOKEN_ENCRYPTION_KEY":     cfg.TokenEncryptionKey,
-		} {
-			if err := secretbox.EnsureIndependentGoogleCredentialKeys(
-				cfg.GoogleClientSecretKeys,
-				name,
-				other,
-			); err != nil {
-				slog.Error("google client secret keyring configuration failed", "error", err)
-				os.Exit(1)
-			}
-		}
-
-		googleCredentialKeys, err = secretbox.NewGoogleCredentialKeyring(
-			cfg.GoogleClientSecretKeys,
-			cfg.GoogleClientSecretActiveKeyVersion,
+	// Every project authorizes with its own Google OAuth client, stored
+	// encrypted under this keyring. There is no shared global client, so the
+	// keyring is required.
+	if cfg.GoogleClientSecretKeys == "" {
+		slog.Error(
+			"google client secret keyring configuration failed",
+			"error", "GOOGLE_CLIENT_SECRET_KEYS is required",
 		)
-		if err != nil {
+		os.Exit(1)
+	}
+	for name, other := range map[string]string{
+		"CALLBACK_SECRET_KEYS":     cfg.CallbackSecretKeys,
+		"WEBAUTHN_CREDENTIAL_KEYS": cfg.WebAuthnCredentialKeys,
+		"TOKEN_ENCRYPTION_KEY":     cfg.TokenEncryptionKey,
+	} {
+		if err := secretbox.EnsureIndependentGoogleCredentialKeys(
+			cfg.GoogleClientSecretKeys,
+			name,
+			other,
+		); err != nil {
 			slog.Error("google client secret keyring configuration failed", "error", err)
 			os.Exit(1)
 		}
 	}
-	slog.Info(
-		"google client credential encryption",
-		"enabled", googleCredentialKeys != nil,
+
+	googleCredentialKeys, err := secretbox.NewGoogleCredentialKeyring(
+		cfg.GoogleClientSecretKeys,
+		cfg.GoogleClientSecretActiveKeyVersion,
 	)
+	if err != nil {
+		slog.Error("google client secret keyring configuration failed", "error", err)
+		os.Exit(1)
+	}
 
 	auditService := audit.NewService(store)
 
@@ -132,13 +133,17 @@ func main() {
 
 	appAuthService := appauth.NewService(store, cfg.AppAccessTokenTTL)
 
+	// Per-project Google clients. A stored credential that cannot be
+	// decrypted is reported as unusable; there is no other client to use.
+	googleCredentials := googlecred.NewService(store, googleCredentialKeys)
+
 	oauthService, err := oauth.NewService(
 		store,
 		projectService,
 		transactionCipher,
 		oauth.Options{
-			GoogleClientID:    cfg.GoogleClientID,
 			GoogleRedirectURI: cfg.GoogleRedirectURI,
+			Credentials:       googleCredentials,
 		},
 	)
 	if err != nil {
@@ -152,9 +157,7 @@ func main() {
 
 	googleProvider, err := google.NewClient(
 		google.Options{
-			ClientID:     cfg.GoogleClientID,
-			ClientSecret: cfg.GoogleClientSecret,
-			RedirectURI:  cfg.GoogleRedirectURI,
+			RedirectURI: cfg.GoogleRedirectURI,
 		},
 	)
 	if err != nil {
@@ -163,6 +166,17 @@ func main() {
 			"error",
 			err,
 		)
+		os.Exit(1)
+	}
+
+	refreshService, err := refresh.NewService(refresh.Options{
+		Credentials: googleCredentials,
+		Projects:    projectService,
+		Google:      googleProvider,
+		Limits:      refresh.DefaultLimits(),
+	})
+	if err != nil {
+		slog.Error("Google refresh configuration failed", "error", err)
 		os.Exit(1)
 	}
 
@@ -184,6 +198,7 @@ func main() {
 		transactionCipher,
 		googleProvider,
 		signedDeliverer,
+		oauth.WithCredentials(googleCredentials),
 	)
 	if err != nil {
 		slog.Error(
@@ -259,6 +274,7 @@ func main() {
 		OAuth:         oauthService,
 		OAuthCallback: callbackService,
 		AppAuth:       appAuthService,
+		Refresh:       refreshService,
 		TokenLimits:   api.DefaultTokenLimits(),
 		Federation:    federatedAdmin,
 	})

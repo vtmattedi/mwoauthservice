@@ -2,8 +2,6 @@ package audit
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -91,11 +89,6 @@ func (s *Service) Metrics(
 	filters domain.AuditFilters,
 ) (domain.OAuthMetricsPage, error) {
 	return s.store.OAuthMetrics(ctx, filters)
-}
-
-func FingerprintAPIKey(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:])[:16]
 }
 
 // NormalizeEvent validates and removes sensitive audit metadata before storage.

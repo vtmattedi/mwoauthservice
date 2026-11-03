@@ -24,6 +24,7 @@ type callbackTestGoogle struct{}
 
 func (callbackTestGoogle) ExchangeCode(
 	ctx context.Context,
+	client oauth.GoogleClient,
 	code string,
 	verifier string,
 ) (oauth.TokenSet, error) {
@@ -44,7 +45,6 @@ func TestGoogleCallbackDenialRedirectsTrustedReturnURL(t *testing.T) {
 		project.CreateRecord{
 			Name:                     "Callback API Test",
 			Enabled:                  true,
-			TokenHash:                "callback-api-hash",
 			CallbackSecretCiphertext: "cipher",
 			CallbackSecretNonce:      "nonce",
 			CallbackSecretKeyVersion: 1,
@@ -53,6 +53,8 @@ func TestGoogleCallbackDenialRedirectsTrustedReturnURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	creds, credentialRef := testGoogleCredentials(t, store, projectRow.ID)
 
 	key := bytes.Repeat([]byte{0x66}, 32)
 	encoded := base64.RawURLEncoding.EncodeToString(key)
@@ -76,6 +78,7 @@ func TestGoogleCallbackDenialRedirectsTrustedReturnURL(t *testing.T) {
 	returnURL := "https://app.example.com/settings/integrations"
 
 	transaction := domain.OAuthTransaction{
+		GoogleCredentialID:     credentialRef,
 		ID:                     "oauth_txn_callback_api",
 		ProjectID:              projectRow.ID,
 		Provider:               "google",
@@ -109,6 +112,7 @@ func TestGoogleCallbackDenialRedirectsTrustedReturnURL(t *testing.T) {
 		cipher,
 		callbackTestGoogle{},
 		oauth.UnavailableDeliverer{},
+		oauth.WithCredentials(creds),
 	)
 	if err != nil {
 		t.Fatal(err)
