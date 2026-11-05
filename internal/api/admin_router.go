@@ -18,6 +18,7 @@ func newAdminRouter(
 	auditService *audit.Service,
 	build buildinfo.Info,
 	federatedAdmin *federation.Authenticator,
+	credentials AdminCredentialDeps,
 ) http.Handler {
 	if federatedAdmin == nil {
 		federatedAdmin, _ = federation.NewAuthenticator(
@@ -168,6 +169,27 @@ func newAdminRouter(
 				AdminProjectGoogleConfigPut(projects),
 			),
 		)
+
+		if credentials.AppAuth != nil {
+			credentials.Projects = projects
+			credentials.Audit = auditService
+			registerClientRoutes(mux, federatedAdmin, service, auditService, credentials)
+		}
+		if credentials.Google != nil {
+			credentials.Projects = projects
+			credentials.Audit = auditService
+			registerGoogleClientRoutes(mux, federatedAdmin, service, auditService, credentials)
+		}
+		if credentials.Google != nil {
+			mux.Handle(
+				"GET /admin/api/projects/summary",
+				adminAuthorized(federatedAdmin, service, auditService, federation.ScopeProjectsRead, false,
+					AdminProjectsSummary(AdminCredentialDeps{
+						Projects: projects, Google: credentials.Google,
+					}),
+				),
+			)
+		}
 	}
 
 	mux.Handle(
@@ -217,4 +239,53 @@ func newAdminRouter(
 	return service.Conceal(
 		service.CORS(mux),
 	)
+}
+
+func registerClientRoutes(
+	mux *http.ServeMux,
+	fed *federation.Authenticator,
+	service *admin.Service,
+	auditService *audit.Service,
+	deps AdminCredentialDeps,
+) {
+	const base = "/admin/api/projects/{id}/client"
+
+	mux.Handle("GET "+base,
+		adminAuthorized(fed, service, auditService, federation.ScopeCredentialsRead, false,
+			AdminClientGet(deps)))
+	mux.Handle("POST "+base+"/credentials",
+		adminAuthorized(fed, service, auditService, federation.ScopeCredentialsRotate, true,
+			AdminClientSecretCreate(deps)))
+	mux.Handle("DELETE "+base+"/credentials/{credentialID}",
+		adminAuthorized(fed, service, auditService, federation.ScopeCredentialsRotate, true,
+			AdminClientSecretRevoke(deps)))
+	mux.Handle("POST "+base+"/tokens/revoke",
+		adminAuthorized(fed, service, auditService, federation.ScopeCredentialsRotate, true,
+			AdminClientTokensRevoke(deps)))
+}
+
+func registerGoogleClientRoutes(
+	mux *http.ServeMux,
+	fed *federation.Authenticator,
+	service *admin.Service,
+	auditService *audit.Service,
+	deps AdminCredentialDeps,
+) {
+	const base = "/admin/api/projects/{id}/oauth/google/client"
+
+	mux.Handle("GET "+base,
+		adminAuthorized(fed, service, auditService, federation.ScopeProviderCredentialsRead, false,
+			AdminGoogleClientGet(deps)))
+	mux.Handle("PUT "+base,
+		adminAuthorized(fed, service, auditService, federation.ScopeProviderCredentialsManage, true,
+			AdminGoogleClientPut(deps)))
+	mux.Handle("GET "+base+"/{credentialRef}/impact",
+		adminAuthorized(fed, service, auditService, federation.ScopeProviderCredentialsRead, false,
+			AdminGoogleClientImpact(deps)))
+	mux.Handle("POST "+base+"/{credentialRef}/retire",
+		adminAuthorized(fed, service, auditService, federation.ScopeProviderCredentialsManage, true,
+			AdminGoogleClientRetire(deps)))
+	mux.Handle("POST "+base+"/{credentialRef}/disable",
+		adminAuthorized(fed, service, auditService, federation.ScopeProviderCredentialsManage, true,
+			AdminGoogleClientDisable(deps)))
 }

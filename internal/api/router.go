@@ -13,6 +13,7 @@ import (
 	"github.com/vtmattedi/mw-oauth-service/internal/audit"
 	"github.com/vtmattedi/mw-oauth-service/internal/buildinfo"
 	"github.com/vtmattedi/mw-oauth-service/internal/federation"
+	"github.com/vtmattedi/mw-oauth-service/internal/googlecred"
 	"github.com/vtmattedi/mw-oauth-service/internal/oauth"
 	"github.com/vtmattedi/mw-oauth-service/internal/project"
 	"github.com/vtmattedi/mw-oauth-service/internal/refresh"
@@ -33,6 +34,8 @@ type Dependencies struct {
 	OAuthCallback *oauth.CallbackService
 	AppAuth       *appauth.Service
 	Refresh       *refresh.Service
+	// GoogleCredentials manages per-project Google clients (admin routes).
+	GoogleCredentials *googlecred.Service
 	// TokenLimits guards POST /v1/auth/token. The zero value means no
 	// limits; main supplies DefaultTokenLimits().
 	TokenLimits TokenLimits
@@ -108,6 +111,7 @@ func NewRouter(deps Dependencies) http.Handler {
 			deps.Audit,
 			deps.Build,
 			deps.Federation,
+			AdminCredentialDeps{AppAuth: deps.AppAuth, Google: deps.GoogleCredentials},
 		)
 		mux.Handle("/admin/api", adminHandler)
 		mux.Handle("/admin/api/", adminHandler)

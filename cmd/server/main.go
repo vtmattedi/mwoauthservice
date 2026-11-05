@@ -275,8 +275,10 @@ func main() {
 		OAuthCallback: callbackService,
 		AppAuth:       appAuthService,
 		Refresh:       refreshService,
-		TokenLimits:   api.DefaultTokenLimits(),
-		Federation:    federatedAdmin,
+
+		GoogleCredentials: googleCredentials,
+		TokenLimits:       api.DefaultTokenLimits(),
+		Federation:        federatedAdmin,
 	})
 
 	server := &http.Server{

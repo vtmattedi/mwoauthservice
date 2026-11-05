@@ -26,7 +26,12 @@ The Identity internal URL is private transport configuration, not the public iss
 | `GET /admin/api/projects`                                      | `oauth.projects.read`                        |
 | `POST /admin/api/projects`, `PATCH /admin/api/projects/{id}` | `oauth.projects.write`                       |
 | `DELETE /admin/api/projects/{id}`                            | `oauth.projects.delete`                      |
-| project API-key and callback-secret rotation                     | `oauth.credentials.rotate`                   |
+| callback-secret rotation                                         | `oauth.credentials.rotate`                   |
+| `GET /admin/api/projects/{id}/client`                          | `oauth.credentials.read`                     |
+| `POST /client/credentials`, `DELETE /client/credentials/{id}`, `POST /client/tokens/revoke` | `oauth.credentials.rotate` |
+| `GET /oauth/google/client`, `GET /oauth/google/client/{ref}/impact` | `oauth.provider_credentials.read`       |
+| `PUT /oauth/google/client`, `POST /oauth/google/client/{ref}/retire` and `/disable` | `oauth.provider_credentials.manage` |
+| `GET /admin/api/projects/summary`                              | `oauth.projects.read`                        |
 | `GET` / `PUT` project Google OAuth policy                    | `oauth.policy.read` / `oauth.policy.write` |
 | audit list/detail                                                | `oauth.audit.read`                           |
 | metrics                                                          | `oauth.metrics.read`                         |
@@ -36,7 +41,9 @@ Federated requests do not require a browser `Origin` or CSRF token. Local browse
 
 Each completed federated operation emits an `admin.federated.operation` audit event containing the human Identity `sub`, `auth_time`, `amr`, audience, authorized scope, and request ID. Raw delegated tokens and introspection credentials are excluded.
 
-The public `/v1/oauth/google/authorize` project API-key contract and signed callback-secret flow are unchanged.
+v1.1 removed the `mw_live_` project API key and its `rotate-key` route. Applications authenticate with an MW client ID and secret (`docs/v1.1-credentials-and-refresh.md`), managed through the `/client` routes above. The signed callback-secret flow is unchanged.
+
+The Google client routes live under their own scopes on purpose: `oauth.policy.write` (Google authorization policy) can never read or change a Google client secret, and the reverse. `PUT /oauth/google/client` never echoes the submitted secret; `retire` and `disable` answer `409 confirmation_required` with the impact until the request body is `{"confirm": true}`. Secrets appear only in the response that creates them (MW client secret) and never in audit events. Credential changes emit `oauth.client.*` and `oauth.google.credential_*` audit events with the project ID and non-secret references.
 
 Project deletion returns `204` after atomically removing project credential
 material, provider configuration, and OAuth transaction history. A missing
